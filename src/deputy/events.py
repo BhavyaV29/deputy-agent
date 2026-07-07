@@ -55,3 +55,13 @@ class RunFinished:
 
 Event = ActionPlanned | ToolObserved | ActionDenied | AnswerRejected | RunFinished
 EventSink = Callable[[Event], None]
+
+
+def fanout(*sinks: EventSink) -> EventSink:
+    """Broadcast every event to each sink, in order — e.g. audit + console + UI."""
+
+    def emit(event: Event) -> None:
+        for sink in sinks:
+            sink(event)
+
+    return emit
