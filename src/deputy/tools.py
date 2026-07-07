@@ -20,6 +20,7 @@ class Tool:
     description: str
     parameters: Mapping[str, Any]  # JSON Schema for the tool's args object
     handler: ToolHandler
+    mutating: bool = False  # writes/side effects; Phase 4 gates these selectively
 
 
 class ToolRegistry:

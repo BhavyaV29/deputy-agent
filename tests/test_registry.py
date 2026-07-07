@@ -49,3 +49,8 @@ def test_signature_lists_typed_params() -> None:
 
 def test_signature_of_no_arg_tool() -> None:
     assert signature(Tool("now", "d", object_schema(), _noop)) == "now()"
+
+
+def test_tool_is_non_mutating_by_default() -> None:
+    assert Tool("read", "d", object_schema(), _noop).mutating is False
+    assert Tool("write", "d", object_schema(), _noop, mutating=True).mutating is True
