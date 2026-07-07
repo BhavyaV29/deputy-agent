@@ -1,0 +1,29 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+
+# Environments
+.venv/
+.env
+.env.*
+!.env.example
+
+# Tooling caches
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# Deputy runtime data (never commit user data)
+data/
+*.db
+*.sqlite
+*.sqlite3
+managed.env
+web_settings.yaml
+
+# OS / editor
+.DS_Store
