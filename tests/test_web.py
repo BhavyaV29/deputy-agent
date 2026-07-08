@@ -27,6 +27,7 @@ from deputy.audit import AuditLog
 from deputy.events import ActionPlanned, EventSink, RunFinished, StopReason, ToolObserved, fanout
 from deputy.model import ChatResponse, Message
 from deputy.tools import Tool, ToolRegistry, object_schema
+from deputy.web.launcher import probe_deputy, resolve_endpoint
 from deputy.web.server import create_app
 
 _TIMEOUT = 10.0
@@ -159,8 +160,28 @@ def test_index_page_and_static_assets_are_served(tmp_path: Path) -> None:
         page = client.get("/")
         assert page.status_code == 200
         assert "Deputy" in page.text
+        # The one-click sample tasks are server-rendered so the demo flow (and
+        # its gif) stays a single click, and the mutating one is present.
+        assert "Try a sample task" in page.text
+        assert "Save a note:" in page.text
         assert client.get("/static/app.js").status_code == 200
         assert client.get("/static/style.css").status_code == 200
+
+
+def test_healthz_lets_the_launcher_detect_a_running_deputy(tmp_path: Path) -> None:
+    with _serve(_service(tmp_path, [_final("x")], [])) as client:
+        health = client.get("/healthz")
+        assert health.status_code == 200
+        assert health.json() == {"status": "ok", "app": "deputy"}
+
+        port = client.base_url.port
+        assert port is not None
+        # The launcher must recognise this instance and reuse its port rather
+        # than trying to bind a second server there.
+        assert probe_deputy("127.0.0.1", port) is True
+        endpoint = resolve_endpoint("127.0.0.1", port)
+        assert endpoint.port == port
+        assert endpoint.already_running is True
 
 
 def test_chat_run_streams_plan_observation_and_answer(tmp_path: Path) -> None:

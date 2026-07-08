@@ -54,6 +54,12 @@ def create_app(service: AgentService) -> FastAPI:
     async def index() -> str:
         return index_html
 
+    @app.get("/healthz")
+    async def healthz() -> dict[str, str]:
+        # A stable marker the launcher probes to tell "Deputy is already running
+        # here" apart from "some other process holds this port".
+        return {"status": "ok", "app": "deputy"}
+
     @app.post("/chat")
     async def chat(body: ChatRequest) -> dict[str, str]:
         goal = body.message.strip()

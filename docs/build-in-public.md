@@ -1,8 +1,9 @@
 # Build-in-public drafts
 
 Drafts for sharing Deputy while job-hunting. Technical, specific, honest — lead with the interesting
-bits, skip the hype. Fill the `<repo link>` and `<demo link>` placeholders before posting, and attach
-the demo capture from [`media/`](media/README.md).
+bits, skip the hype. The links below are filled in, but the demo URL is the **expected Render Static
+Site URL (`https://deputy-web-demo.onrender.com`) — confirm it after your first deploy** and update it
+here if your service name differs. Attach the demo capture from [`media/`](media/README.md) before posting.
 
 All numbers below are from this repo's [eval](eval_results.md) and test suite — keep them accurate if
 you edit.
@@ -57,16 +58,16 @@ The stack, all Python:
 • FastAPI loopback UI with a live action stream + in-browser approvals
 
 **7/**
-It's tested like a product, not a demo: 189 tests, all offline. Every external dep (model, MCP, network)
+It's tested like a product, not a demo: 199 tests, all offline. Every external dep (model, MCP, network)
 sits behind a protocol with a fake, so the suite runs with no Ollama — and a separate eval runs the
 *real* agent to measure reliability.
 
 **8/**
 Writeup, architecture doc, and the eval methodology are in the repo:
-<repo link>
+https://github.com/BhavyaV29/deputy-agent
 
 Demo (start a task → live action stream → approval gate → audit view):
-<demo link>
+https://deputy-web-demo.onrender.com
 
 Happy to talk through any of the design decisions.
 
@@ -103,10 +104,10 @@ write stayed behind the gate even when decoding was deliberately degraded, becau
 by the loop rather than requested from the model.
 
 Rounding it out: tools over MCP, on-device retrieval with sqlite-vec and citations back to source files,
-and a loopback FastAPI UI with a live action stream and in-browser approvals. 189 tests, all runnable
+and a loopback FastAPI UI with a live action stream and in-browser approvals. 199 tests, all runnable
 offline against fakes, plus a reliability eval that exercises the real agent.
 
-Writeup and architecture notes here: <repo link>
+Writeup and architecture notes here: https://github.com/BhavyaV29/deputy-agent
 
 Always happy to talk agents, local models, or reliability engineering.
 
@@ -125,7 +126,7 @@ qwen2.5:3b, same task suite:
 • loop crashes 11 → 0
 
 It fixes *shape*, not *choice* — so you remove the malformed-output failures without touching the model's
-judgment. Writeup: <repo link>
+judgment. Writeup: https://github.com/BhavyaV29/deputy-agent
 
 ---
 

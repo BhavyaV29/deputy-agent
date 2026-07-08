@@ -140,18 +140,52 @@ A deeper treatment — each layer, the alternatives considered, and why the curr
 ollama pull qwen2.5:3b
 ollama pull nomic-embed-text
 
-# 2. Install dependencies into a local venv.
-uv sync
+# 2. Install Deputy's commands (deputy, deputy-web, deputy-app) onto your PATH.
+uv tool install .    # or just `uv sync` to run inside this checkout with `uv run …`
+```
 
-# 3. (optional) Build an on-device index over some documents — try the bundled sample corpus.
+### Use it like an app (recommended)
+
+`deputy-app` is **launch-once, use-continuously**: it starts the local server, opens it in your
+browser, and stays running until you close it. Re-run it whenever — if Deputy is already up it just
+reopens that tab; if the port is busy it picks the next free one — so launching never errors.
+
+```bash
+deputy-app                 # start the UI + open http://127.0.0.1:8000, and keep running
+deputy-app --window        # open a native desktop window instead of a browser tab (see note)
+deputy-app --no-browser    # just serve (for background / start-on-login use)
+```
+
+**No terminal at all (macOS):**
+
+- **Double-click to launch** — open [`scripts/Deputy.command`](scripts/Deputy.command) from Finder
+  (right-click → *Open* the first time to clear Gatekeeper). It runs `deputy-app` and leaves a small
+  Terminal window as the "Deputy is running" indicator; close it to stop.
+- **Start on login (opt-in)** — install the LaunchAgent template so Deputy is always ready:
+
+```bash
+cp scripts/com.deputy.app.plist ~/Library/LaunchAgents/com.deputy.app.plist
+# first edit the __DEPUTY_APP__ / __WORKDIR__ / __LOG_DIR__ placeholders inside it, then:
+launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.deputy.app.plist   # enable
+launchctl bootout   gui/$(id -u) ~/Library/LaunchAgents/com.deputy.app.plist   # disable
+```
+
+> **Native window** needs one optional dependency — install with `uv sync --extra app` (or
+> `uv tool install ".[app]"`), which adds [`pywebview`](https://pywebview.flowrl.com). Without it,
+> `--window` simply falls back to a browser tab.
+
+### Or use the CLI / plain server
+
+```bash
+# (optional) Build an on-device index over some documents — try the bundled sample corpus.
 uv run python -m deputy.rag.index sample_workspace
 
-# 4a. Run the CLI.
-uv run python -m deputy "what is 12 * (3 + 4)?"                    # trivial demo tools
+# One-shot CLI tasks:
+uv run python -m deputy "what is 12 * (3 + 4)?"                          # trivial demo tools
 uv run python -m deputy --real "what's on my calendar for 2026-07-08?"   # real tools + RAG
 
-# 4b. …or launch the local web UI (chat, live action stream, approvals, audit view).
-uv run python -m deputy.web                                        # http://127.0.0.1:8000
+# The plain web server (no auto-open) — same UI, handy for scripts / service managers:
+uv run python -m deputy.web                                              # http://127.0.0.1:8000
 ```
 
 The web server binds `127.0.0.1` only — Deputy is local-first, so the UI is never reachable off-host.
@@ -165,7 +199,9 @@ The web server binds `127.0.0.1` only — Deputy is local-first, so the UI is ne
 | `--max-steps` | ✓ | ✓ | Step ceiling for the loop (default `8`). |
 | `--critic` | ✓ | ✓ | Self-check the draft answer before returning it. |
 | `--yes` | ✓ | — | Auto-approve writes (non-interactive scripting). |
-| `--port` | — | ✓ | Loopback port for the web UI (default `8000`). |
+| `--port` | — | ✓ | Loopback port (default `8000`; `deputy-app` advances to the next free port if busy). |
+| `--window` | — | app | `deputy-app` only: open a native desktop window (needs the `app` extra). |
+| `--no-browser` | — | app | `deputy-app` only: start the server without auto-opening anything. |
 
 ---
 
@@ -265,7 +301,7 @@ Two ways to see Deputy work: run the **in-browser demo** below (no install), or 
 
 [`web-demo/`](web-demo/) is a self-contained, static demo that runs Deputy's whole agent loop **entirely client-side**: a small model (Qwen2.5-0.5B) runs in your browser via WebLLM/WebGPU over a sandboxed sample corpus, streaming plan → tool → observation → answer, pausing the mutating step for an in-page **Approve / Deny**, and logging every action — nothing leaves the tab. It mirrors the privacy story the real app makes on your own machine.
 
-- **Live demo:** `<add your deployed URL here>` — publish the `web-demo/` folder to any static host (GitHub Pages / Netlify / Vercel), no build step.
+- **Live demo:** <https://deputy-web-demo.onrender.com> — **expected [Render](https://render.com) Static Site URL; confirm after the first deploy** (swap it if your service name differs). Published from `web-demo/` via the repo's [`render.yaml`](render.yaml) with no build step; it's plain static files, so any static host (Netlify / Vercel / GitHub Pages) works too.
 - **Run locally:** `cd web-demo && python3 -m http.server 8000`, then open `http://localhost:8000`.
 - **No WebGPU?** It auto-detects and falls back to a scripted transcript so it always works; force that path with `?fallback=1`.
 
@@ -311,7 +347,7 @@ src/deputy/
   web/             FastAPI loopback UI (SSE stream, approvals, audit)
   eval/            reliability eval harness
   spike/           the Phase-1 constrained-decoding spike
-tests/             189 tests
+tests/             199 tests
 docs/              architecture, eval results, build-in-public notes
 sample_workspace/  a small corpus to index and query out of the box
 ```
@@ -321,7 +357,7 @@ sample_workspace/  a small corpus to index and query out of the box
 ## Development
 
 ```bash
-uv run pytest -q        # 189 tests
+uv run pytest -q        # 199 tests
 uv run ruff check .     # lint
 uv run mypy             # strict type-checking
 ```
@@ -337,7 +373,7 @@ Packaging Deputy as a standalone desktop command is documented in
 ## Status & license
 
 Working end-to-end across its core phases (agent core, MCP tools, on-device RAG, trust surface, web UI,
-and a reliability eval), with 189 passing tests and clean `ruff` + strict `mypy`. It is a personal
+and a reliability eval), with 199 passing tests and clean `ruff` + strict `mypy`. It is a personal
 project and a focused demonstration rather than a supported product.
 
 Licensed under the [MIT License](LICENSE).

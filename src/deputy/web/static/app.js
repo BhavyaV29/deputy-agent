@@ -5,6 +5,7 @@ const composer = document.getElementById("composer");
 const messageBox = document.getElementById("message");
 const sendBtn = document.getElementById("send");
 const auditBody = document.getElementById("audit-body");
+const sampleButtons = document.querySelectorAll(".sample");
 
 let source = null;
 let runId = null;
@@ -43,6 +44,9 @@ function setRunning(on) {
   running = on;
   sendBtn.disabled = on;
   messageBox.disabled = on;
+  sampleButtons.forEach((btn) => {
+    btn.disabled = on;
+  });
 }
 
 function finalize() {
@@ -164,6 +168,16 @@ messageBox.addEventListener("keydown", (e) => {
     e.preventDefault();
     composer.requestSubmit();
   }
+});
+
+sampleButtons.forEach((btn) => {
+  btn.addEventListener("click", () => {
+    if (running) return;
+    const goal = (btn.dataset.goal || btn.textContent || "").trim();
+    if (!goal) return;
+    messageBox.value = goal;
+    composer.requestSubmit();
+  });
 });
 
 function summarizeRecord(r) {

@@ -24,6 +24,30 @@
     <main>
       <section id="chat" class="view active">
         <div id="transcript" class="transcript" aria-live="polite"></div>
+        <div id="samples" class="samples">
+          <span class="samples-label">Try a sample task</span>
+          <button
+            type="button"
+            class="sample"
+            data-goal="Save a note: call the dentist tomorrow, then confirm."
+          >
+            Save a note (asks to approve)
+          </button>
+          <button
+            type="button"
+            class="sample"
+            data-goal="What's on my calendar for 2026-07-08?"
+          >
+            Check my calendar
+          </button>
+          <button
+            type="button"
+            class="sample"
+            data-goal="Find where sqlite-vec is mentioned across my files and summarize, with sources."
+          >
+            Search my files
+          </button>
+        </div>
         <form id="composer" class="composer">
           <textarea
             id="message"

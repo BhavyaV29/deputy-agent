@@ -95,14 +95,26 @@ fallback path never touches the network.
 
 ## Deploy as a static site
 
-Because there's no backend, deploy the `web-demo/` folder to any static host:
+There's no backend and no build step, so this folder deploys to any static host.
+This repo targets **[Render](https://render.com) as a Static Site** via the
+blueprint at [`render.yaml`](../render.yaml) in the repo root — Render just serves
+`web-demo/` over its CDN.
 
-- **GitHub Pages:** push the repo and enable Pages, or publish just this folder
-  (e.g. with a Pages action). Serve it at a subpath — all asset paths here are
-  relative, so it works under `/<repo>/web-demo/`.
-- **Netlify / Vercel / Cloudflare Pages:** set the publish/output directory to
-  `web-demo` with **no build command**.
-- **Any web server:** copy the folder to the web root.
+**Deploy on Render — the one manual step:** in the Render dashboard, click
+**New → Blueprint** and pick this repo (Render reads `render.yaml` automatically),
+**or** **New → Static Site**, connect the repo, set **Publish directory** to
+`web-demo`, and leave the **Build command** empty. Then confirm the live URL.
+
+The blueprint names the service `deputy-web-demo`, so the **expected URL is
+`https://deputy-web-demo.onrender.com`** — the real URL depends on the service
+name, so **confirm it after the first deploy**. If it differs (or you deploy
+elsewhere), update the links in [`../README.md`](../README.md) and
+[`../docs/build-in-public.md`](../docs/build-in-public.md); it's just static
+files, so swapping the URL is all it takes.
+
+Other hosts need no build command either — point **Netlify / Vercel / Cloudflare
+Pages / GitHub Pages** at the `web-demo` directory. All asset paths here are
+relative, so it also serves fine from a subpath (e.g. `/<repo>/web-demo/`).
 
 Some hosts must send WebLLM's model shards with permissive CORS (the default
 jsDelivr/HuggingFace CDNs already do). No special headers are required for the

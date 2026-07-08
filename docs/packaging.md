@@ -19,15 +19,46 @@ There is no way around this — Deputy is a client of a local model server, not 
 
 ## Entry points
 
-The project declares two console scripts (`pyproject.toml`):
+The project declares three console scripts (`pyproject.toml`):
 
 | Command | Runs | Equivalent module form |
 | --- | --- | --- |
 | `deputy` | the CLI agent | `python -m deputy` |
-| `deputy-web` | the loopback web UI | `python -m deputy.web` |
+| `deputy-web` | the loopback web UI (plain server) | `python -m deputy.web` |
+| `deputy-app` | the loopback web UI, **launch-once** (auto-open, port reuse, optional native window) | `python -m deputy.web.launcher` |
 
-The other tools stay as module invocations (they're developer-facing): `python -m deputy.rag.index`,
-`python -m deputy.eval`, `python -m deputy.spike`.
+`deputy-app` is the friendly, double-clickable front door; `deputy-web` is the bare server for
+scripting and service managers. The other tools stay as module invocations (they're
+developer-facing): `python -m deputy.rag.index`, `python -m deputy.eval`, `python -m deputy.spike`.
+
+## The app experience (`deputy-app`)
+
+`deputy-app` wraps the exact same FastAPI UI as `deputy-web`, adding only the conveniences that make
+it feel like an application rather than a command you re-run:
+
+- **Auto-open + stay running.** It starts the loopback server, opens your browser at the right URL,
+  and blocks until you close the window or press Ctrl+C.
+- **Re-launch is safe.** If Deputy is already serving on the preferred port it reopens that instance;
+  if another process holds the port it moves to the next free one. Launching twice never errors.
+- **Optional native window.** `deputy-app --window` opens a desktop window via
+  [`pywebview`](https://pywebview.flowrl.com) — an optional extra so the default install stays
+  dependency-light and packaging stays simple:
+
+```bash
+uv sync --extra app          # inside the checkout
+uv tool install ".[app]"     # or as an installed tool
+deputy-app --window          # falls back to a browser tab if pywebview isn't present
+```
+
+### macOS: launch with no terminal
+
+- **Double-click.** [`scripts/Deputy.command`](../scripts/Deputy.command) is an executable shell
+  script; double-click it in Finder (right-click → *Open* once to clear Gatekeeper). It runs an
+  installed `deputy-app` if present, otherwise `uv run deputy-app` from the checkout, and keeps a
+  small Terminal window open as the "running" indicator.
+- **A real `.app` (optional).** If you want a dock icon, wrap the command with a one-liner:
+  `osacompile -o Deputy.app -e 'do shell script "open \"$HOME/…/scripts/Deputy.command\""'`, or point
+  an Automator "Application" at the same script. Not shipped — the `.command` is the light path.
 
 ## Recommended: `uv tool install`
 
@@ -70,28 +101,27 @@ alias deputy='uv run --project ~/code/deputy-agent python -m deputy'
 alias deputy-web='uv run --project ~/code/deputy-agent python -m deputy.web'
 ```
 
-## Running the web UI as a background service (optional)
+## Start on login (opt-in)
 
-Since the UI binds loopback and mirrors the CLI's config, you can keep it running with a user-level
-service manager. macOS `launchd` sketch (`~/Library/LaunchAgents/com.deputy.web.plist`):
+Since the UI binds loopback and mirrors the CLI's config, you can keep it running across logins with
+a user-level service manager. The repo ships a ready-to-fill macOS `launchd` template at
+[`scripts/com.deputy.app.plist`](../scripts/com.deputy.app.plist). It runs `deputy-app --no-browser`
+(server only — no browser pops at login) so the UI is always ready; you then open it any time with
+`deputy-app` or `Deputy.command`, which detect the running instance and just open your browser.
 
-```xml
-<?xml version="1.0" encoding="UTF-8"?>
-<plist version="1.0">
-  <dict>
-    <key>Label</key><string>com.deputy.web</string>
-    <key>ProgramArguments</key>
-    <array>
-      <string>/Users/you/.local/bin/deputy-web</string>
-    </array>
-    <key>RunAtLoad</key><true/>
-    <key>KeepAlive</key><true/>
-  </dict>
-</plist>
+```bash
+cp scripts/com.deputy.app.plist ~/Library/LaunchAgents/com.deputy.app.plist
+# Edit its placeholders first:
+#   __DEPUTY_APP__  → `which deputy-app`   (e.g. /Users/you/.local/bin/deputy-app)
+#   __WORKDIR__     → where Deputy keeps data/ + finds your workspace (your checkout)
+#   __LOG_DIR__     → a writable logs dir  (e.g. /Users/you/Library/Logs)
+launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.deputy.app.plist   # enable now + on login
+launchctl bootout   gui/$(id -u) ~/Library/LaunchAgents/com.deputy.app.plist   # disable
 ```
 
-`launchctl load ~/Library/LaunchAgents/com.deputy.web.plist`. On Linux, an equivalent
-`systemd --user` unit works the same way. (This is a convenience, not something the repo ships.)
+Setting `WorkingDirectory` matters: Deputy resolves `data/` and the workspace relative to the process
+CWD, and a login agent otherwise starts at `/`. On Linux, an equivalent `systemd --user` unit running
+`deputy-app --no-browser` works the same way.
 
 ## Why not a frozen binary
 

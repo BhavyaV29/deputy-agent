@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTD/PropertyList-1.0.dtd">
+<!--
+  Deputy — OPT-IN "start on login" LaunchAgent for macOS (a template).
+
+  This keeps Deputy's local web UI running in the background so it's always
+  ready. It does NOT pop a browser at login (hence `--no-browser`); open the UI
+  any time by double-clicking Deputy.command or running `deputy-app`, which
+  detects this running instance and just opens your browser to it.
+
+  ONE-TIME SETUP
+    1. Replace the three __PLACEHOLDER__ values below (see notes).
+    2. Copy this file into place:
+         cp scripts/com.deputy.app.plist ~/Library/LaunchAgents/com.deputy.app.plist
+    3. Enable (starts now + on every login):
+         launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.deputy.app.plist
+    4. Disable / remove:
+         launchctl bootout gui/$(id -u) ~/Library/LaunchAgents/com.deputy.app.plist
+         rm ~/Library/LaunchAgents/com.deputy.app.plist
+
+  PLACEHOLDERS
+    __DEPUTY_APP__ — absolute path to the deputy-app executable.
+                     Find it with:  which deputy-app
+                     (e.g. /Users/you/.local/bin/deputy-app after `uv tool install .`)
+    __WORKDIR__    — absolute path Deputy should run in, i.e. where it keeps
+                     data/ and finds your workspace (typically your repo checkout,
+                     e.g. /Users/you/code/deputy-agent).
+    __LOG_DIR__    — a writable directory for logs (e.g. /Users/you/Library/Logs).
+-->
+<plist version="1.0">
+  <dict>
+    <key>Label</key>
+    <string>com.deputy.app</string>
+
+    <key>ProgramArguments</key>
+    <array>
+      <string>__DEPUTY_APP__</string>
+      <string>--no-browser</string>
+    </array>
+
+    <!-- Deputy resolves data/ and the workspace relative to its working dir. -->
+    <key>WorkingDirectory</key>
+    <string>__WORKDIR__</string>
+
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+    <key>ProcessType</key>
+    <string>Background</string>
+
+    <key>StandardOutPath</key>
+    <string>__LOG_DIR__/deputy-app.log</string>
+    <key>StandardErrorPath</key>
+    <string>__LOG_DIR__/deputy-app.log</string>
+  </dict>
+</plist>

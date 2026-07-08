@@ -1,0 +1,27 @@
+# Render Blueprint — deploys ONLY the static, in-browser demo (web-demo/).
+#
+# The private FastAPI app (deputy.web / deputy-app) is a LOCAL app: it needs a
+# local Ollama and access to your own files, so it must NEVER be hosted here.
+# This blueprint publishes web-demo/, which is pure client-side HTML/CSS/JS — all
+# inference runs in the visitor's browser via WebGPU/WebLLM.
+#
+# Deploy: Render dashboard → New → Blueprint → select this repo (reads render.yaml).
+#    or:  New → Static Site → connect repo, Publish directory "web-demo", empty build.
+# Then confirm the live URL and update the placeholders in README.md /
+# docs/build-in-public.md if your final service name differs from the one below.
+services:
+  - type: web # a static site is `type: web` combined with `runtime: static`
+    name: deputy-web-demo # → https://deputy-web-demo.onrender.com (unless taken/renamed)
+    runtime: static
+    branch: main
+    # No build step: the folder is served as-is. Render requires a build command
+    # for non-Docker services, so this is a no-op that exits 0.
+    buildCommand: "echo 'No build step — web-demo/ is served as-is.'"
+    staticPublishPath: ./web-demo
+    # web-demo/ ships no package.json/requirements, so make "no build" explicit:
+    # tell Render not to auto-detect and install any dependencies.
+    envVars:
+      - key: SKIP_INSTALL_DEPS
+        value: "true"
+    # A single index.html (modes selected via ?query params, not path routing)
+    # needs no SPA rewrite rules.

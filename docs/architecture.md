@@ -419,7 +419,7 @@ the earlier call-level experiment that motivated the bet.
 
 ## Cross-cutting: testing strategy
 
-Every external dependency sits behind a protocol, so the 189-test suite runs offline and fast:
+Every external dependency sits behind a protocol, so the 199-test suite runs offline and fast:
 
 - `ChatModel` / `Embedder` → scripted fakes (no Ollama).
 - MCP → `memory_connector` runs real `FastMCP` servers in-process (no subprocesses).
