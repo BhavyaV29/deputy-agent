@@ -6,10 +6,15 @@ readme = "README.md"
 requires-python = ">=3.12"
 license = { text = "MIT" }
 dependencies = [
+    "fastapi>=0.139.0",
     "httpx>=0.28.1",
     "mcp>=1.28.1",
     "sqlite-vec>=0.1.9",
+    "uvicorn>=0.50.2",
 ]
+
+[project.scripts]
+deputy-web = "deputy.web.__main__:main"
 
 [build-system]
 requires = ["hatchling"]

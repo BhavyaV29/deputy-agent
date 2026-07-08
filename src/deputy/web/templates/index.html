@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Deputy</title>
+    <link rel="stylesheet" href="/static/style.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="brand">
+        <span class="mark" aria-hidden="true">▦</span>
+        <div class="brand-text">
+          <h1>Deputy</h1>
+          <p class="tagline">private · on-device · asks before it acts</p>
+        </div>
+      </div>
+      <nav class="tabs">
+        <button type="button" class="tab active" data-view="chat">Chat</button>
+        <button type="button" class="tab" data-view="audit">Audit</button>
+      </nav>
+    </header>
+
+    <main>
+      <section id="chat" class="view active">
+        <div id="transcript" class="transcript" aria-live="polite"></div>
+        <form id="composer" class="composer">
+          <textarea
+            id="message"
+            rows="1"
+            placeholder="Ask Deputy to do something…"
+            autocomplete="off"
+          ></textarea>
+          <button id="send" type="submit">Send</button>
+        </form>
+      </section>
+
+      <section id="audit" class="view">
+        <div class="audit-head">
+          <h2>Audit log</h2>
+          <button id="refresh" type="button">Refresh</button>
+        </div>
+        <div id="audit-body" class="audit-body"></div>
+      </section>
+    </main>
+
+    <script src="/static/app.js"></script>
+  </body>
+</html>
