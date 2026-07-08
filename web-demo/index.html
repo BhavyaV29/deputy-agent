@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Deputy — in-browser demo</title>
+    <meta
+      name="description"
+      content="A fully client-side demo of Deputy: a private, on-device agent loop with tools, an approval gate, and an audit log — running in your browser via WebGPU."
+    />
+    <link rel="stylesheet" href="./style.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="brand">
+        <span class="mark" aria-hidden="true">&#9638;</span>
+        <div class="brand-text">
+          <h1>Deputy <span class="badge">browser demo</span></h1>
+          <p class="tagline">private &middot; on-device &middot; asks before it acts</p>
+        </div>
+      </div>
+      <nav class="tabs">
+        <button type="button" class="tab active" data-view="demo">Demo</button>
+        <button type="button" class="tab" data-view="audit">Audit</button>
+      </nav>
+    </header>
+
+    <p id="banner" class="banner info" aria-live="polite">Checking this device for WebGPU&hellip;</p>
+
+    <main>
+      <section id="demo" class="view active">
+        <div class="modelbar">
+          <span id="model-status" class="model-status">Checking device&hellip;</span>
+          <div class="modelbar-actions">
+            <button id="scripted-btn" type="button" class="ghost" hidden>Try a scripted demo</button>
+            <button id="load-btn" type="button" class="solid" hidden>Load on-device model</button>
+          </div>
+          <div id="progress" class="progress" hidden>
+            <div class="progress-track"><div id="progress-bar" class="progress-bar"></div></div>
+            <span id="progress-text" class="progress-text">0%</span>
+          </div>
+        </div>
+
+        <div id="transcript" class="transcript" aria-live="polite"></div>
+
+        <div class="tray">
+          <div class="tray-label">Try a task</div>
+          <div id="presets" class="presets"></div>
+          <form id="composer" class="composer">
+            <textarea
+              id="message"
+              rows="1"
+              placeholder="Load the on-device model to chat, or try a scripted demo."
+              autocomplete="off"
+            ></textarea>
+            <button id="send" type="submit" disabled>Send</button>
+          </form>
+        </div>
+      </section>
+
+      <section id="audit" class="view">
+        <div class="audit-head">
+          <h2>Audit log</h2>
+          <div class="audit-actions">
+            <button id="audit-clear" type="button">Clear log</button>
+            <button id="audit-refresh" type="button">Refresh</button>
+          </div>
+        </div>
+        <div id="audit-body" class="audit-body"></div>
+      </section>
+    </main>
+
+    <script type="module" src="./js/app.js"></script>
+  </body>
+</html>

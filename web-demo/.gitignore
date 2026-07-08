@@ -1,0 +1,6 @@
+# Local tooling / editor cruft — the demo itself is dependency-free.
+.DS_Store
+node_modules/
+*.log
+.vite/
+dist/
