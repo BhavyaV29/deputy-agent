@@ -9,6 +9,12 @@
       content="A fully client-side demo of Deputy: a private, on-device agent loop with tools, an approval gate, and an audit log — running in your browser via WebGPU."
     />
     <link rel="stylesheet" href="./style.css" />
+    <script>
+      try {
+        var saved = localStorage.getItem("deputy-theme");
+        if (saved === "dark" || saved === "light") document.documentElement.dataset.theme = saved;
+      } catch (e) {}
+    </script>
   </head>
   <body>
     <header class="topbar">
@@ -22,6 +28,7 @@
       <nav class="tabs">
         <button type="button" class="tab active" data-view="demo">Demo</button>
         <button type="button" class="tab" data-view="audit">Audit</button>
+        <button type="button" id="theme-toggle" class="theme-toggle" aria-label="Toggle dark theme" aria-pressed="false"></button>
       </nav>
     </header>
 

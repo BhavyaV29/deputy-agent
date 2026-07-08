@@ -18,6 +18,7 @@ import {
   renderAudit,
 } from "./ui.js";
 import { uid, nowStamp } from "./util.js";
+import { initTheme } from "./theme.js";
 
 const registry = createRegistry();
 
@@ -39,6 +40,7 @@ const dom = {
   auditBody: document.getElementById("audit-body"),
   auditRefresh: document.getElementById("audit-refresh"),
   auditClear: document.getElementById("audit-clear"),
+  themeToggle: document.getElementById("theme-toggle"),
 };
 
 const state = {
@@ -314,6 +316,7 @@ function wireControls() {
 }
 
 function init() {
+  initTheme(dom.themeToggle);
   buildPresets();
   wireControls();
 

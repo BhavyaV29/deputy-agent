@@ -5,8 +5,28 @@
 // (a real WebLLM model or a canned script both satisfy the `model.act` seam).
 
 import { systemPrompt, observationMessage, denialMessage } from "./prompts.js";
+import { withDeadline } from "./util.js";
 
 const MAX_STEPS = 8;
+// A single on-device turn should never run this long; if it does the decode has
+// stalled, so we abort it and surface the failure rather than hang forever.
+const STEP_TIMEOUT_MS = 60_000;
+// A weak model can keep emitting non-JSON. Rather than burn every step retrying,
+// give up after this many consecutive misses and answer with its own prose.
+const MAX_PARSE_RETRIES = 3;
+
+// Salvage something presentable from output we couldn't parse into an action,
+// so a run that never yields valid JSON still ends with a message, not silence.
+function degradeToText(raw) {
+  const cleaned = String(raw)
+    .replace(/```[a-z]*\n?/gi, "")
+    .replace(/```/g, "")
+    .trim();
+  if (cleaned.length >= 8 && /[a-z]/i.test(cleaned)) {
+    return cleaned.length > 1200 ? `${cleaned.slice(0, 1200)}\u2026` : cleaned;
+  }
+  return "I couldn't produce a reliable answer on-device for this one. Try rephrasing, or run a scripted demo.";
+}
 
 function extractJson(raw) {
   const text = String(raw).trim();
@@ -62,20 +82,32 @@ export function parseAction(raw, registry) {
 
 // approve: async (request) => boolean. Only ever called for mutating tools;
 // read-only calls are auto-approved here, exactly like Deputy's policy approver.
-export async function runAgent({ goal, model, registry, approve, onEvent, maxSteps = MAX_STEPS }) {
+export async function runAgent({
+  goal,
+  model,
+  registry,
+  approve,
+  onEvent,
+  maxSteps = MAX_STEPS,
+  stepTimeoutMs = STEP_TIMEOUT_MS,
+}) {
   const emit = (event) => onEvent && onEvent(event);
   const messages = [
     { role: "system", content: systemPrompt(registry.tools) },
     { role: "user", content: goal },
   ];
 
+  let parseFailures = 0;
+
   for (let step = 1; step <= maxSteps; step += 1) {
     emit({ type: "thinking", step });
 
     let raw;
     try {
-      raw = await model.act(messages);
+      raw = await withDeadline(stepTimeoutMs, (signal) => model.act(messages, { signal }));
+      console.debug("[deputy] step", step, "output:", raw);
     } catch (err) {
+      console.error("[deputy] step", step, "generation failed:", err);
       emit({ type: "error", step, message: `${err?.name || "Error"}: ${err?.message || err}` });
       return;
     }
@@ -83,11 +115,18 @@ export async function runAgent({ goal, model, registry, approve, onEvent, maxSte
     let action;
     try {
       action = parseAction(raw, registry);
+      parseFailures = 0;
     } catch (err) {
+      parseFailures += 1;
       messages.push({ role: "assistant", content: String(raw) });
+      if (parseFailures >= MAX_PARSE_RETRIES) {
+        console.warn("[deputy] no valid action after", parseFailures, "tries; using its text as the answer");
+        emit({ type: "run_finished", step, answer: degradeToText(raw), reason: "unparsed" });
+        return;
+      }
       messages.push({
         role: "user",
-        content: `That was not a valid action (${err.message}). Reply with a single JSON object.`,
+        content: `That was not a valid action (${err.message}). Reply with a single JSON object and nothing else.`,
       });
       emit({ type: "parse_retry", step, detail: err.message });
       continue;
