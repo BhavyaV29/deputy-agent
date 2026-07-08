@@ -29,6 +29,10 @@ class Message:
 @dataclass(frozen=True)
 class ChatResponse:
     text: str
+    # Ollama's decode counters, when the runtime reports them; left at zero by
+    # fakes and the cloud client. The eval harness reads these to derive tokens/s.
+    eval_count: int = 0
+    eval_duration_ns: int = 0
 
 
 class ChatModel(Protocol):
@@ -99,7 +103,11 @@ class OllamaClient:
 
         body = self._post("/api/chat", payload, timeout)
         message = body.get("message") or {}
-        return ChatResponse(text=str(message.get("content", "")))
+        return ChatResponse(
+            text=str(message.get("content", "")),
+            eval_count=int(body.get("eval_count", 0)),
+            eval_duration_ns=int(body.get("eval_duration", 0)),
+        )
 
     def embed(self, text: str, *, timeout: float | None = None) -> list[float]:
         body = self._post("/api/embed", {"model": self._model, "input": text}, timeout)
