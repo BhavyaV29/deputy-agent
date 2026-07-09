@@ -1,10 +1,12 @@
 [project]
 name = "deputy"
-version = "0.0.0"
+version = "0.1.0"
 description = "A private, on-device AI agent that works your files and runs tasks — and asks before it acts."
 readme = "README.md"
 requires-python = ">=3.12"
 license = { text = "MIT" }
+authors = [{ name = "Bhavya Vashisht" }]
+keywords = ["agent", "mcp", "ollama", "rag", "on-device", "local-llm"]
 dependencies = [
     "fastapi>=0.139.0",
     "httpx>=0.28.1",
@@ -12,6 +14,11 @@ dependencies = [
     "sqlite-vec>=0.1.9",
     "uvicorn>=0.50.2",
 ]
+
+[project.urls]
+Homepage = "https://github.com/BhavyaV29/deputy-agent"
+Repository = "https://github.com/BhavyaV29/deputy-agent"
+Demo = "https://deputy-web-demo.onrender.com"
 
 [project.optional-dependencies]
 # Native desktop window for `deputy-app --window`. Optional so the default

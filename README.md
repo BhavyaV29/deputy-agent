@@ -7,6 +7,8 @@ agent loop runs entirely client-side (WebGPU) over sandboxed sample data: plan �
 answer, with the mutating step paused for an in-page approval and every action logged. Nothing leaves
 the tab.
 
+**Repo:** [github.com/BhavyaV29/deputy-agent](https://github.com/BhavyaV29/deputy-agent) · **CI:** pytest + ruff + mypy on every push
+
 Deputy runs a small local model (via [Ollama](https://ollama.com)) in a bounded agent loop, calls
 tools through [MCP](https://modelcontextprotocol.io), retrieves from your own documents on-device, and
 records every action behind approval gates before anything is written. Nothing leaves your machine
@@ -300,7 +302,7 @@ export DEPUTY_TRUST="add_note=deny"         # example: never allow note writes
 
 ## Demo
 
-Two ways to see Deputy work: run the **in-browser demo** below (no install), or record the local web UI.
+Two ways to see Deputy work: the **in-browser demo** below (no install), or the full local app on your own machine.
 
 ### Try it in your browser — no install
 
@@ -310,23 +312,18 @@ Two ways to see Deputy work: run the **in-browser demo** below (no install), or 
 - **Run locally:** `cd web-demo && python3 -m http.server 8000`, then open `http://localhost:8000`.
 - **No WebGPU?** It auto-detects and falls back to a scripted transcript so it always works; force that path with `?fallback=1`.
 
-### Web UI capture
+### Run the full app locally
 
-> **Placeholder — record and drop your own capture here.** No screenshots are committed yet.
+Want the real thing on your own files? Install via [Quick start](#quick-start), then start the web UI
+with `deputy-app` (or `uv run python -m deputy.web`) and open `http://127.0.0.1:8000`. A good
+end-to-end flow to try:
 
-![Deputy web UI demo](docs/media/demo.gif)
-
-To record the demo (web UI), capture this end-to-end flow into `docs/media/demo.gif`:
-
-1. `uv run python -m deputy.web` and open `http://127.0.0.1:8000`.
-2. **Start a task** in the chat box, e.g. *"Save a note: call the dentist tomorrow, then confirm."*
-3. Watch the **live action stream** — each step's plan and the tool observation appear as they happen.
-4. **Hit an approval** — the mutating `add_note` call pauses with **Approve / Deny** buttons.
-5. **Approve it**, and let the run finish with a final answer.
-6. Switch to the **Audit** tab to show the recorded run: planned actions, the approval decision, and
+1. **Start a task** in the chat box, e.g. *"Save a note: call the dentist tomorrow, then confirm."*
+2. Watch the **live action stream** — each step's plan and the tool observation appear as they happen.
+3. **Hit an approval** — the mutating `add_note` call pauses with **Approve / Deny** buttons.
+4. **Approve it**, and let the run finish with a final answer.
+5. Switch to the **Audit** tab to see the recorded run: planned actions, the approval decision, and
    the observation.
-
-See [`docs/media/README.md`](docs/media/README.md) for exact capture tips and the expected filenames.
 
 ---
 
