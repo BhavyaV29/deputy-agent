@@ -1,0 +1,10 @@
+{
+  "name": "deputy-web-demo",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Static, no-build in-browser demo of Deputy. The type:module field lets Node load the ES modules for the parser tests; the browser ignores it and loads via <script type=module>.",
+  "scripts": {
+    "test": "node test/parse.test.mjs"
+  }
+}

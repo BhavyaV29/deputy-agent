@@ -32,15 +32,24 @@
       </nav>
     </header>
 
-    <p id="banner" class="banner info" aria-live="polite">Checking this device for WebGPU&hellip;</p>
+    <p id="banner" class="banner info" aria-live="polite">Loading the scripted walkthrough&hellip;</p>
 
     <main>
       <section id="demo" class="view active">
         <div class="modelbar">
-          <span id="model-status" class="model-status">Checking device&hellip;</span>
+          <span id="model-status" class="model-status">Scripted walkthrough &middot; no model loaded</span>
           <div class="modelbar-actions">
             <select id="model-select" class="model-select" aria-label="Choose on-device model" hidden></select>
-            <button id="scripted-btn" type="button" class="ghost" hidden>Try a scripted demo</button>
+            <button
+              id="live-btn"
+              type="button"
+              class="ghost"
+              title="Loads a small LLM in your browser via WebGPU. Experimental: smaller models may wander or loop."
+              hidden
+            >
+              Run it for real (experimental)
+            </button>
+            <button id="scripted-btn" type="button" class="ghost" hidden>Back to scripted walkthrough</button>
             <button id="load-btn" type="button" class="solid" hidden>Load on-device model</button>
           </div>
           <div id="progress" class="progress" hidden>
@@ -50,8 +59,9 @@
         </div>
 
         <p id="model-hint" class="model-hint" hidden>
-          Multi-step tasks (like &ldquo;prep for the review&rdquo;) are more reliable on larger models: 1.5B is the
-          recommended balance, 3B reasons best, and 0.5B is fastest but may miss a step.
+          Experimental on-device mode &mdash; smaller models may wander or loop. 1.5B (default) usually completes the
+          demos, 3B is the most reliable, and 0.5B is fastest to download but the roughest (not recommended for these
+          tasks). Prefer a sure thing? Go back to the scripted walkthrough.
         </p>
 
         <div id="transcript" class="transcript" aria-live="polite"></div>

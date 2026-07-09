@@ -60,10 +60,27 @@ function extractFinalText(raw, registry) {
   return cleaned.length >= 8 ? cleaned : null;
 }
 
-// The guaranteed floor: even if the model never writes a synthesis, assemble a
-// task-shaped answer from the real observations — grouped by source and calling
-// out any reminder actually saved — so the UI shows something readable rather
-// than a raw concatenation of tool output, and never "no answer".
+// Which observation groups actually bear on the goal, so the deterministic
+// fallback reports only what's relevant (a "what's on my calendar" question must
+// not echo pasta files). An empty set means we couldn't classify the goal, so we
+// include everything as a best effort rather than hiding real work.
+function relevantTools(goal) {
+  const g = String(goal).toLowerCase();
+  const set = new Set();
+  if (/\b(calendar|schedule|agenda|upcoming|events?|meeting|appointment|today|tomorrow|week|days?)\b/.test(g)) {
+    set.add("list_events");
+  }
+  if (/\b(notes?|remember|remind|reminder|save)\b/.test(g)) set.add("search_notes");
+  if (/\b(files?|recipe|read|document|doc|pasta|cook|dinner|meal)\b/.test(g)) {
+    set.add("search_files");
+    set.add("read_file");
+  }
+  return set;
+}
+
+// The guaranteed floor, reached ONLY when the model never produced a clean
+// synthesis. Be honest about that rather than dressing a raw dump up as the
+// answer, and scope the gathered observations to what's relevant to the goal.
 function deterministicSummary(goal, findings) {
   const isNoise = (text) =>
     !text ||
@@ -73,6 +90,9 @@ function deterministicSummary(goal, findings) {
     const t = String(text).trim();
     return t.length > 280 ? `${t.slice(0, 280).trimEnd()}\u2026` : t;
   };
+
+  const relevant = relevantTools(goal);
+  const include = (tool) => relevant.size === 0 || relevant.has(tool);
 
   const calendar = [];
   const notes = [];
@@ -86,9 +106,13 @@ function deterministicSummary(goal, findings) {
     }
     const obs = String(f.observation ?? "").trim();
     if (isNoise(obs)) continue;
-    if (f.tool === "list_events") calendar.push(excerpt(obs));
-    else if (f.tool === "search_notes") notes.push(excerpt(obs));
-    else files.push(excerpt(obs)); // search_files / read_file
+    if (f.tool === "list_events") {
+      if (include("list_events")) calendar.push(excerpt(obs));
+    } else if (f.tool === "search_notes") {
+      if (include("search_notes")) notes.push(excerpt(obs));
+    } else if (include("search_files") || include("read_file")) {
+      files.push(excerpt(obs)); // search_files / read_file
+    }
   }
 
   const sections = [];
@@ -96,13 +120,13 @@ function deterministicSummary(goal, findings) {
   if (notes.length) sections.push(`Notes:\n${[...new Set(notes)].join("\n")}`);
   if (files.length) sections.push(`Files:\n${[...new Set(files)].join("\n")}`);
 
-  const out = [];
-  if (sections.length) out.push(`Here's what I found:\n\n${sections.join("\n\n")}`);
+  const out = ["The on-device model couldn't complete this cleanly \u2014 here's what it managed:"];
+  if (sections.length) out.push(sections.join("\n\n"));
   if (saved.length) {
-    out.push(`I saved a reminder: ${[...new Set(saved)].map((t) => `"${t}"`).join("; ")}.`);
+    out.push(`It did save a reminder: ${[...new Set(saved)].map((t) => `"${t}"`).join("; ")}.`);
   }
-  if (!out.length) {
-    return `I looked through your notes, files, and calendar but couldn't find anything that answers "${goal}". Try different keywords, or run the scripted demo with ?fallback=1.`;
+  if (out.length === 1) {
+    return `The on-device model couldn't complete this cleanly, and it didn't gather anything relevant to "${goal}". Try again, pick a larger model, or use the scripted walkthrough (?fallback=1).`;
   }
   return out.join("\n\n");
 }
@@ -143,6 +167,47 @@ function relaxJson(text) {
     .replace(/([{,]\s*)([A-Za-z_]\w*)(\s*:)/g, '$1"$2"$3');
 }
 
+// Escape raw control characters (literal newline/tab/CR, etc.) that appear INSIDE
+// a double-quoted string — JSON forbids them unescaped ("Bad control character in
+// string literal"), yet small models happily emit a real newline inside a final
+// answer. Structural whitespace between tokens is left untouched.
+function escapeControlChars(text) {
+  let out = "";
+  let inString = false;
+  let escaped = false;
+  for (let i = 0; i < text.length; i += 1) {
+    const ch = text[i];
+    if (inString) {
+      if (escaped) {
+        out += ch;
+        escaped = false;
+        continue;
+      }
+      if (ch === "\\") {
+        out += ch;
+        escaped = true;
+        continue;
+      }
+      if (ch === '"') {
+        out += ch;
+        inString = false;
+        continue;
+      }
+      const code = text.charCodeAt(i);
+      if (code < 0x20) {
+        const map = { 8: "\\b", 9: "\\t", 10: "\\n", 12: "\\f", 13: "\\r" };
+        out += map[code] || `\\u${code.toString(16).padStart(4, "0")}`;
+        continue;
+      }
+      out += ch;
+    } else {
+      if (ch === '"') inString = true;
+      out += ch;
+    }
+  }
+  return out;
+}
+
 function tryParse(text) {
   try {
     return JSON.parse(text);
@@ -153,12 +218,16 @@ function tryParse(text) {
 
 function extractJson(raw) {
   const text = String(raw).trim();
-  const span = firstObjectSpan(text);
-  const candidates = [text, span, span && relaxJson(span), relaxJson(text)];
-  for (const candidate of candidates) {
-    if (!candidate) continue;
-    const parsed = tryParse(candidate);
-    if (parsed !== undefined) return parsed;
+  // Prefer the first balanced {...} span (drops surrounding prose/fences), then
+  // the whole text. For each, try as-is, then apply best-effort repairs: escaping
+  // unescaped control chars and relaxing single-quotes/commas/bare keys.
+  for (const base of [firstObjectSpan(text), text]) {
+    if (!base) continue;
+    const variants = [base, escapeControlChars(base), relaxJson(base), escapeControlChars(relaxJson(base))];
+    for (const variant of variants) {
+      const parsed = tryParse(variant);
+      if (parsed !== undefined) return parsed;
+    }
   }
   throw new Error("no JSON object in output");
 }

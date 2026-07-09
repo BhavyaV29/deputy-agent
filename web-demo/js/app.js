@@ -28,6 +28,7 @@ const dom = {
   modelSelect: document.getElementById("model-select"),
   modelHint: document.getElementById("model-hint"),
   loadBtn: document.getElementById("load-btn"),
+  liveBtn: document.getElementById("live-btn"),
   scriptedBtn: document.getElementById("scripted-btn"),
   progress: document.getElementById("progress"),
   progressBar: document.getElementById("progress-bar"),
@@ -46,6 +47,8 @@ const dom = {
 };
 
 const state = {
+  // "fallback" is the scripted walkthrough — now the DEFAULT/primary experience.
+  // ready | loading | loaded | load_error are the opt-in, experimental live path.
   mode: "checking", // checking | fallback | ready | loading | loaded | load_error
   model: null,
   modelId: DEFAULT_MODEL_ID,
@@ -71,12 +74,12 @@ function chipsEnabled(on) {
 function applyEnablement() {
   const idle = !state.running;
   const loaded = state.mode === "loaded";
-  const fallback = state.mode === "fallback";
+  const scripted = state.mode === "fallback"; // the primary, default experience
   const ready = state.mode === "ready";
   const loading = state.mode === "loading";
   const loadError = state.mode === "load_error";
-  // WebGPU is available in all of these — the model picker stays visible.
-  const gpuMode = ready || loading || loaded || loadError;
+  // The opt-in, experimental live path — WebGPU present, model picker on screen.
+  const live = ready || loading || loaded || loadError;
   // A (re)load can be started from a fresh "ready" or a recoverable failure.
   const canLoad = ready || loadError;
 
@@ -84,23 +87,26 @@ function applyEnablement() {
   dom.send.disabled = !(loaded && idle);
   dom.message.placeholder = loaded
     ? "Ask Deputy to do something\u2026"
-    : fallback
-      ? "Free-text chat needs the on-device model \u2014 pick a scripted demo above."
-      : "Load the on-device model to chat, or try a scripted demo.";
+    : scripted
+      ? "Free-text chat needs a live model \u2014 pick a task above, or run it for real (experimental)."
+      : "Load the on-device model to chat, or go back to the scripted walkthrough.";
 
-  chipsEnabled((loaded || fallback) && idle);
+  chipsEnabled((loaded || scripted) && idle);
 
-  dom.modelSelect.hidden = !gpuMode;
+  dom.modelSelect.hidden = !live;
   dom.modelSelect.disabled = !(idle && (ready || loaded || loadError));
   // The model-choice hint is only relevant while the picker is on screen.
-  dom.modelHint.hidden = !gpuMode;
+  dom.modelHint.hidden = !live;
 
   dom.loadBtn.hidden = !(canLoad || loading);
   dom.loadBtn.disabled = !(canLoad && idle);
   dom.loadBtn.textContent = loadError ? "Retry download" : "Load on-device model";
 
-  // Offer the scripted escape hatch both before loading and after a failed load.
-  dom.scriptedBtn.hidden = !(ready || loadError);
+  // Opt into experimental live mode from the scripted default...
+  dom.liveBtn.hidden = !scripted;
+  dom.liveBtn.disabled = !idle;
+  // ...and get back to the scripted walkthrough from any live state.
+  dom.scriptedBtn.hidden = !(ready || loaded || loadError);
   dom.scriptedBtn.disabled = !idle;
 }
 
@@ -114,21 +120,28 @@ function setMode(next, { reason } = {}) {
       dom.modelStatus.textContent = "Checking device\u2026";
       dom.progress.hidden = true;
       break;
-    case "fallback":
-      setBanner(
-        `Fallback mode \u2014 ${state.fallbackReason} This is a scripted playback of the same demo: no model is downloaded and nothing runs on the GPU. Pick a demo below.`,
-        "warn",
-      );
-      dom.modelStatus.textContent = "On-device model: not loaded (scripted demo)";
+    case "fallback": {
+      // Scripted is the primary, default experience now — present it as such, not
+      // as an error. A live-unavailable reason gets an honest note instead.
+      const unavailable = state.fallbackReason.startsWith("live-unavailable:");
+      const base =
+        "Scripted walkthrough \u2014 runs instantly with no download and completes every demo correctly: " +
+        "plan \u2192 tool \u2192 approval \u2192 audit \u2192 final answer. Pick a task below.";
+      const tail = unavailable
+        ? ` On-device mode isn't available here (${state.fallbackReason.slice("live-unavailable:".length).trim()}).`
+        : " Want to watch it drive a real model instead? Use \u201cRun it for real\u201d (experimental \u2014 downloads a small model).";
+      setBanner(base + tail, unavailable ? "warn" : "info");
+      dom.modelStatus.textContent = "Scripted walkthrough \u00b7 no model loaded";
       dom.progress.hidden = true;
       break;
+    }
     case "ready": {
       const model = currentModel();
       setBanner(
-        `WebGPU is available. Pick a model and load it for real on-device inference: a one-time ${model.download} download (${model.note}), then it runs fully in your browser \u2014 or try a scripted demo with no download.`,
+        `Experimental on-device mode. WebGPU is available \u2014 pick a model and load it for real inference: a one-time ${model.download} download (${model.note}), then it runs fully in your browser. Prefer the sure thing? Use \u201cBack to scripted walkthrough.\u201d`,
         "info",
       );
-      dom.modelStatus.textContent = "On-device model: ready to load";
+      dom.modelStatus.textContent = "On-device model: ready to load (experimental)";
       dom.progress.hidden = true;
       break;
     }
@@ -142,17 +155,17 @@ function setMode(next, { reason } = {}) {
       break;
     case "loaded":
       setBanner(
-        `Loaded ${modelLabel(currentModel())} on-device. Everything below runs locally in your browser \u2014 nothing leaves your machine.`,
+        `Live (experimental): loaded ${modelLabel(currentModel())} on-device \u2014 everything below runs locally, nothing leaves your machine. Smaller models may wander; use \u201cBack to scripted walkthrough\u201d for the reliable version.`,
         "ok",
       );
-      dom.modelStatus.textContent = `On-device model: ${modelLabel(currentModel())} \u2713`;
+      dom.modelStatus.textContent = `On-device model: ${modelLabel(currentModel())} \u2713 (experimental)`;
       dom.progress.hidden = true;
       break;
     case "load_error":
       // WebGPU works; the download/cache just failed. Stay recoverable — keep the
-      // picker and a Retry button rather than dropping to the scripted demo.
+      // picker and a Retry button rather than dropping to the scripted walkthrough.
       setBanner(
-        `Model download failed${state.fallbackReason ? ` (${state.fallbackReason})` : ""} \u2014 check your connection and Retry, or pick the smaller, faster 0.5B model. Nothing was sent anywhere; you're still fully on-device.`,
+        `Model download failed${state.fallbackReason ? ` (${state.fallbackReason})` : ""} \u2014 check your connection and Retry, pick a smaller model, or go back to the scripted walkthrough. Nothing was sent anywhere; you're still fully on-device.`,
         "error",
       );
       dom.modelStatus.textContent = "On-device model: download failed \u2014 Retry available";
@@ -292,7 +305,10 @@ function makeHandler(run) {
         break;
       case "run_finished": {
         clearThinking();
-        const answer = ev.answer != null ? ev.answer : "I wasn't able to complete that on-device. Try rephrasing, or run the scripted demo with ?fallback=1.";
+        const answer =
+          ev.answer != null
+            ? ev.answer
+            : "I wasn't able to complete that on-device. Try rephrasing, pick a larger model, or go back to the scripted walkthrough.";
         const body = el("div", "text");
         addEntry(dom.transcript, "final", "Final answer", body);
         revealAnswer(body, answer);
@@ -366,7 +382,8 @@ function wireControls() {
   });
 
   dom.loadBtn.addEventListener("click", loadModel);
-  dom.scriptedBtn.addEventListener("click", () => setMode("fallback", { reason: "you chose the scripted demo." }));
+  dom.liveBtn.addEventListener("click", enterLive);
+  dom.scriptedBtn.addEventListener("click", () => setMode("fallback", { reason: "back" }));
   dom.auditRefresh.addEventListener("click", () => renderAudit(dom.auditBody, state.runs));
   dom.auditClear.addEventListener("click", () => {
     state.runs = [];
@@ -383,6 +400,30 @@ function wireControls() {
   });
 }
 
+// Opt into the experimental live path: confirm WebGPU, then land in ready — or
+// return to the scripted walkthrough with an honest note if the device can't run
+// a model. Reused by ?live=1 and the "Run it for real" button.
+async function enterLive() {
+  if (state.running) return;
+  if (state.model) {
+    setMode("loaded"); // a model loaded earlier this session is still resident
+    return;
+  }
+  const support = webgpuSupport();
+  if (!support.supported) {
+    setMode("fallback", { reason: `live-unavailable: ${support.reason}` });
+    return;
+  }
+  setMode("checking");
+  const ok = await probeAdapter();
+  if (state.mode !== "checking") return; // user navigated away during the probe
+  if (ok) {
+    setMode("ready");
+  } else {
+    setMode("fallback", { reason: "live-unavailable: no usable WebGPU adapter was found on this device." });
+  }
+}
+
 function init() {
   initTheme(dom.themeToggle);
   buildModelSelect();
@@ -391,26 +432,16 @@ function init() {
 
   const params = new URLSearchParams(location.search);
   state.forcedFallback = params.get("fallback") === "1";
+  const wantLive = params.get("live") === "1";
 
-  setMode("checking");
-
-  if (state.forcedFallback) {
-    setMode("fallback", { reason: "forced with ?fallback=1." });
+  // Scripted-primary: a first-time visitor lands on the working walkthrough with
+  // no download. Live on-device inference is opt-in via ?live=1 or the button;
+  // ?fallback=1 stays an explicit shortcut to scripted and wins over ?live=1.
+  if (wantLive && !state.forcedFallback) {
+    enterLive();
     return;
   }
-
-  const support = webgpuSupport();
-  if (!support.supported) {
-    setMode("fallback", { reason: support.reason });
-    return;
-  }
-
-  setMode("ready");
-  probeAdapter().then((ok) => {
-    if (!ok && state.mode === "ready") {
-      setMode("fallback", { reason: "no usable WebGPU adapter was found on this device." });
-    }
-  });
+  setMode("fallback", { reason: state.forcedFallback ? "forced" : "default" });
 }
 
 init();
