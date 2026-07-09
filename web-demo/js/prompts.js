@@ -26,14 +26,20 @@ export function systemPrompt(tools) {
     "- When the goal is to save a reminder or to remember something, the add_note text must be a short paraphrase of what the user wants remembered (e.g. \"Prep slides for the Phase 3 review\") \u2014 NEVER a copy of a calendar entry or any other tool observation.",
     "- Once a note is saved, do not save it again.",
     `- Today is ${TODAY}. Sample calendar events run from ${CALENDAR_START} to ${CALENDAR_END}; for "the next few days" call list_events with date_or_range "${CALENDAR_START}..${CALENDAR_END}".`,
+    "- search_files/search_notes return only a file name and one matching line, NOT the full text. To answer FROM a file's contents (e.g. a recipe or the details of a document), you MUST call read_file on the path you found before answering.",
+    "- Do NOT reply with {\"final\"} until you have actually DONE what the task requires. If it asks to save/remember/remind, you MUST call add_note (and get it approved) before finalizing. If it asks what's on the calendar/schedule, you MUST call list_events and put the real events in your answer. Never write \"Here's what I found:\" (or similar) with nothing after it.",
+    "- A tool call and a final answer are different: to run a tool use {\"tool\": ...}. Never put a tool call (like read_file(...) or search_files(...)) inside {\"final\"} \u2014 {\"final\"} is only plain-language text for the user.",
     "- Your {\"final\"} answer is a brief summary in your own words \u2014 what you found and what you did (name the reminder you saved). Do not paste raw tool observations.",
     "",
-    "Worked example \u2014 shows the PATTERN only; use the real tools and your own data, do not copy this text:",
-    'Goal: "Find the budget sync and remind me to send the report."',
-    '  {"tool": "search_notes", "args": {"query": "budget sync"}}      (find it first; the note gives its date, say 2026-09-03)',
-    '  {"tool": "list_events", "args": {"date_or_range": "2026-09-03"}} (use THAT date from the note \u2014 do not guess one)',
-    '  {"tool": "add_note", "args": {"text": "Send the report for the budget sync"}} (a paraphrase of the reminder, not a copy of an observation)',
-    '  {"final": "The budget sync is on 2026-09-03 at 14:00. I saved a reminder to send the report."}',
+    "Worked examples \u2014 the PATTERN only; use the real tools and your own data, do not copy this text:",
+    "A) Answer from a file's contents (search gives only a name + one line, so read it first):",
+    '  {"tool": "search_files", "args": {"query": "pasta"}}',
+    '  {"tool": "read_file", "args": {"path": "recipes/weeknight-pasta.md"}}',
+    '  {"final": "Weeknight pasta: simmer garlic, chilli and tinned tomatoes, cook the pasta, then toss with a little pasta water and parmesan."}',
+    "B) Do the action the task asks for BEFORE answering:",
+    '  {"tool": "search_notes", "args": {"query": "budget sync"}}',
+    '  {"tool": "add_note", "args": {"text": "Send the report for the budget sync"}}',
+    '  {"final": "The budget sync is on Thursday. I saved a reminder to send the report."}',
     "",
     "Examples of valid replies:",
     '  {"tool": "search_files", "args": {"query": "pasta"}}',
@@ -65,4 +71,29 @@ export function finalizeMessage(goal) {
     `answer to the user's request: "${goal}".`,
     'Reply with a single JSON object {"final": "<answer>"} and nothing else.',
   ].join("\n");
+}
+
+// Sent when the model tries to finalize before doing the work the task requires.
+export function unfinishedWorkMessage(kind) {
+  if (kind === "save") {
+    return [
+      "You haven't saved the reminder yet, so don't answer.",
+      'First call {"tool": "add_note", "args": {"text": "<the reminder in your own words>"}} and get it approved,',
+      'then reply with {"final": ...}.',
+    ].join(" ");
+  }
+  return [
+    "You haven't looked at the calendar yet, so don't answer.",
+    'First call {"tool": "list_events", "args": {"date_or_range": "..."}} and include the real events,',
+    'then reply with {"final": ...}.',
+  ].join(" ");
+}
+
+// Sent when the model packs a tool call into {"final"} instead of answering.
+export function toolInFinalMessage() {
+  return [
+    'It looks like you put a tool call inside "final".',
+    'To run a tool, reply with {"tool": "<name>", "args": {...}} and nothing else;',
+    'use {"final": "..."} only for the answer to the user, in plain words.',
+  ].join(" ");
 }

@@ -4,7 +4,15 @@
 // it — the loop itself knows nothing about the DOM or where actions come from
 // (a real WebLLM model or a canned script both satisfy the `model.act` seam).
 
-import { systemPrompt, observationMessage, denialMessage, repeatMessage, finalizeMessage } from "./prompts.js";
+import {
+  systemPrompt,
+  observationMessage,
+  denialMessage,
+  repeatMessage,
+  finalizeMessage,
+  unfinishedWorkMessage,
+  toolInFinalMessage,
+} from "./prompts.js";
 import { withDeadline } from "./util.js";
 
 const MAX_STEPS = 8;
@@ -34,18 +42,21 @@ function cleanText(raw) {
 }
 
 // Pull a usable final answer out of a synthesis turn: a proper {"final": ...},
-// or failing that any prose the model wrote — but never a leftover tool-call
-// blob, which would read as gibberish to the user.
+// or failing that any prose the model wrote — but never a tool-call blob or a
+// leftover action, which would read as gibberish to the user.
 function extractFinalText(raw, registry) {
   try {
     const action = parseAction(raw, registry);
-    if (action.kind === "final") return action.text.trim() || null;
-    return null;
+    if (action.kind === "final") {
+      const text = action.text.trim();
+      return text && !looksLikeToolCall(text, registry) ? text : null;
+    }
+    return null; // a tool action is not an answer
   } catch {
     /* not a valid action — fall back to whatever prose it produced */
   }
   const cleaned = cleanText(raw);
-  if (!cleaned || cleaned.startsWith("{")) return null;
+  if (!cleaned || cleaned.startsWith("{") || looksLikeToolCall(cleaned, registry)) return null;
   return cleaned.length >= 8 ? cleaned : null;
 }
 
@@ -96,16 +107,11 @@ function deterministicSummary(goal, findings) {
   return out.join("\n\n");
 }
 
-function extractJson(raw) {
-  const text = String(raw).trim();
-  try {
-    return JSON.parse(text);
-  } catch {
-    // Small models sometimes wrap the object in prose or a code fence; recover
-    // the first balanced {...} span rather than failing the whole step.
-  }
+// The first balanced {...} span in the text, or null. Lets us recover an object
+// even when the model wraps it in prose or a code fence.
+function firstObjectSpan(text) {
   const start = text.indexOf("{");
-  if (start === -1) throw new Error("no JSON object in output");
+  if (start === -1) return null;
   let depth = 0;
   let inString = false;
   let escaped = false;
@@ -121,14 +127,43 @@ function extractJson(raw) {
       depth += 1;
     } else if (ch === "}") {
       depth -= 1;
-      if (depth === 0) return JSON.parse(text.slice(start, i + 1));
+      if (depth === 0) return text.slice(start, i + 1);
     }
   }
-  throw new Error("unterminated JSON object in output");
+  return null;
 }
 
-export function parseAction(raw, registry) {
-  const payload = extractJson(raw);
+// Best-effort repair of the malformations small models emit that otherwise trip
+// JSON.parse ("Expected ',' or '}'…"): single-quoted strings/keys, trailing
+// commas, and unquoted keys. Only ever applied after strict parsing has failed.
+function relaxJson(text) {
+  return text
+    .replace(/'([^']*)'/g, '"$1"')
+    .replace(/,\s*([}\]])/g, "$1")
+    .replace(/([{,]\s*)([A-Za-z_]\w*)(\s*:)/g, '$1"$2"$3');
+}
+
+function tryParse(text) {
+  try {
+    return JSON.parse(text);
+  } catch {
+    return undefined;
+  }
+}
+
+function extractJson(raw) {
+  const text = String(raw).trim();
+  const span = firstObjectSpan(text);
+  const candidates = [text, span, span && relaxJson(span), relaxJson(text)];
+  for (const candidate of candidates) {
+    if (!candidate) continue;
+    const parsed = tryParse(candidate);
+    if (parsed !== undefined) return parsed;
+  }
+  throw new Error("no JSON object in output");
+}
+
+function actionFromObject(payload, registry) {
   if (typeof payload !== "object" || payload === null || Array.isArray(payload)) {
     throw new Error("action must be a JSON object");
   }
@@ -146,6 +181,81 @@ export function parseAction(raw, registry) {
     return { kind: "tool", tool: payload.tool, args: payload.args };
   }
   throw new Error("action keys must be {tool, args} or {final}");
+}
+
+// Recover a Python-style tool call some small models emit instead of JSON, e.g.
+// read_file(path='recipes/x.md') or search_files("pasta"). Only matches a call
+// to a KNOWN tool so prose that merely contains parentheses is left alone.
+function parseCallExpression(raw, registry) {
+  const text = cleanText(raw);
+  const match = text.match(/([A-Za-z_]\w*)\s*\(([\s\S]*)\)/);
+  if (!match) return null;
+  const name = match[1];
+  const tool = registry.get(name);
+  if (!tool) return null;
+
+  const body = match[2].trim();
+  const args = {};
+  if (body) {
+    const kw = [...body.matchAll(/([A-Za-z_]\w*)\s*=\s*("([^"]*)"|'([^']*)'|[^,]+)/g)];
+    if (kw.length) {
+      for (const g of kw) {
+        const value = g[3] ?? g[4] ?? g[2].trim().replace(/^['"]|['"]$/g, "");
+        args[g[1]] = value;
+      }
+    } else if (tool.params.length) {
+      // A single positional argument maps to the tool's first parameter.
+      args[tool.params[0].name] = body.replace(/^['"]|['"]$/g, "");
+    }
+  }
+  return { kind: "tool", tool: name, args };
+}
+
+export function parseAction(raw, registry) {
+  let payload;
+  try {
+    payload = extractJson(raw);
+  } catch {
+    const call = parseCallExpression(raw, registry);
+    if (call) return call;
+    throw new Error("no JSON object in output");
+  }
+  return actionFromObject(payload, registry);
+}
+
+// Does this string read as a tool invocation rather than an answer? Used to stop
+// a mis-formatted "final" (a bare read_file(...) etc.) from reaching the user.
+function looksLikeToolCall(text, registry) {
+  const t = String(text).trim();
+  const whole = t.match(/^([A-Za-z_]\w*)\s*\([\s\S]*\)$/);
+  if (whole && registry.get(whole[1])) return true;
+  const namesToolCall = registry.tools.some((tool) => t.includes(tool.name));
+  const hasArgKey = /\b(path|query|date_or_range|text)\s*=/.test(t);
+  return namesToolCall && hasArgKey;
+}
+
+// If a "final" is actually a (mis-placed) tool call, return that tool action so
+// the loop can execute it instead of showing the call text as the answer.
+function reinterpretFinalAsAction(text, registry) {
+  try {
+    const inner = parseAction(text, registry);
+    if (inner.kind === "tool") return inner;
+  } catch {
+    /* not a recoverable action */
+  }
+  return null;
+}
+
+// Which required action, if any, is still missing when the model tries to finish.
+// Governs a bounded nudge (see the loop), never an unbounded retry.
+function missingRequiredWork(goal, attempts) {
+  const g = String(goal).toLowerCase();
+  const attempted = (name) => [...attempts.keys()].some((key) => key.startsWith(`${name}(`));
+  const needsSave = /\b(save|remember|remind|reminder)\b/.test(g);
+  if (needsSave && !attempted("add_note")) return "save";
+  const needsCalendar = !needsSave && /\b(calendar|schedule|agenda|upcoming|events?)\b/.test(g);
+  if (needsCalendar && !attempted("list_events")) return "calendar";
+  return null;
 }
 
 // approve: async (request) => boolean. Only ever called for mutating tools;
@@ -230,9 +340,43 @@ export async function runAgent({
       continue;
     }
 
+    // A "final" whose text is really a tool call (a small-model mis-format) must
+    // never reach the user: re-interpret it as that action, or re-prompt for one.
+    if (action.kind === "final" && looksLikeToolCall(action.text, registry)) {
+      const asTool = reinterpretFinalAsAction(action.text, registry);
+      if (asTool) {
+        action = asTool;
+      } else {
+        messages.push({ role: "assistant", content: String(raw) });
+        parseFailures += 1;
+        if (parseFailures >= MAX_PARSE_RETRIES) return finalize("unparsed", step);
+        messages.push({ role: "user", content: toolInFinalMessage() });
+        emit({ type: "parse_retry", step, detail: "tool call placed in final" });
+        continue;
+      }
+    }
+
     emit({ type: "action_planned", step, action });
 
     if (action.kind === "final") {
+      // Don't let the model quit before doing the work the task requires. Nudge
+      // once; the no-progress / max-steps guards keep this from ever looping.
+      const missing = missingRequiredWork(goal, attempts);
+      if (missing) {
+        messages.push({ role: "assistant", content: String(raw) });
+        messages.push({ role: "user", content: unfinishedWorkMessage(missing) });
+        emit({
+          type: "nudge",
+          step,
+          detail:
+            missing === "save"
+              ? "No reminder saved yet \u2014 asking Deputy to save it before answering."
+              : "Calendar not checked yet \u2014 asking Deputy to look it up before answering.",
+        });
+        noProgress += 1;
+        if (noProgress >= MAX_NO_PROGRESS) return finalize("no_progress", step);
+        continue;
+      }
       emit({ type: "run_finished", step, answer: action.text, reason: "answered" });
       return;
     }

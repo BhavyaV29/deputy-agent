@@ -278,6 +278,9 @@ function makeHandler(run) {
       case "repeat":
         addToolEntry(dom.transcript, "denied", `Step ${ev.step} \u00b7 skipped repeat`, ev.detail);
         break;
+      case "nudge":
+        addToolEntry(dom.transcript, "denied", `Step ${ev.step} \u00b7 not done yet`, ev.detail);
+        break;
       case "finalizing":
         clearThinking();
         addToolEntry(
