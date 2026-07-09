@@ -45,7 +45,7 @@ const dom = {
 };
 
 const state = {
-  mode: "checking", // checking | fallback | ready | loading | loaded
+  mode: "checking", // checking | fallback | ready | loading | loaded | load_error
   model: null,
   modelId: DEFAULT_MODEL_ID,
   running: false,
@@ -71,6 +71,13 @@ function applyEnablement() {
   const idle = !state.running;
   const loaded = state.mode === "loaded";
   const fallback = state.mode === "fallback";
+  const ready = state.mode === "ready";
+  const loading = state.mode === "loading";
+  const loadError = state.mode === "load_error";
+  // WebGPU is available in all of these — the model picker stays visible.
+  const gpuMode = ready || loading || loaded || loadError;
+  // A (re)load can be started from a fresh "ready" or a recoverable failure.
+  const canLoad = ready || loadError;
 
   dom.message.disabled = !(loaded && idle);
   dom.send.disabled = !(loaded && idle);
@@ -82,13 +89,15 @@ function applyEnablement() {
 
   chipsEnabled((loaded || fallback) && idle);
 
-  const gpuMode = state.mode === "ready" || state.mode === "loading" || loaded;
   dom.modelSelect.hidden = !gpuMode;
-  dom.modelSelect.disabled = !(idle && (state.mode === "ready" || loaded));
+  dom.modelSelect.disabled = !(idle && (ready || loaded || loadError));
 
-  dom.loadBtn.hidden = !(state.mode === "ready" || state.mode === "loading");
-  dom.loadBtn.disabled = !(state.mode === "ready" && idle);
-  dom.scriptedBtn.hidden = state.mode !== "ready";
+  dom.loadBtn.hidden = !(canLoad || loading);
+  dom.loadBtn.disabled = !(canLoad && idle);
+  dom.loadBtn.textContent = loadError ? "Retry download" : "Load on-device model";
+
+  // Offer the scripted escape hatch both before loading and after a failed load.
+  dom.scriptedBtn.hidden = !(ready || loadError);
   dom.scriptedBtn.disabled = !idle;
 }
 
@@ -136,6 +145,16 @@ function setMode(next, { reason } = {}) {
       dom.modelStatus.textContent = `On-device model: ${modelLabel(currentModel())} \u2713`;
       dom.progress.hidden = true;
       break;
+    case "load_error":
+      // WebGPU works; the download/cache just failed. Stay recoverable — keep the
+      // picker and a Retry button rather than dropping to the scripted demo.
+      setBanner(
+        `Model download failed${state.fallbackReason ? ` (${state.fallbackReason})` : ""} \u2014 check your connection and Retry, or pick the smaller, faster 0.5B model. Nothing was sent anywhere; you're still fully on-device.`,
+        "error",
+      );
+      dom.modelStatus.textContent = "On-device model: download failed \u2014 Retry available";
+      dom.progress.hidden = true;
+      break;
     default:
       break;
   }
@@ -154,15 +173,18 @@ function onProgress(report) {
 }
 
 async function loadModel() {
-  if (state.mode !== "ready" || state.running) return;
+  if (!(state.mode === "ready" || state.mode === "load_error") || state.running) return;
   setMode("loading");
   try {
     state.model = await createWebLLMModel({ modelId: state.modelId, onProgress });
     setMode("loaded");
   } catch (err) {
-    console.error("Model load failed:", err);
+    // A failed download is NOT the same as "no WebGPU": stay in an on-device,
+    // recoverable state (selector + Retry visible) rather than dropping to
+    // scripted mode. Only a missing GPU / ?fallback=1 should go scripted.
+    console.error("[deputy] model load failed:", err);
     state.model = null;
-    setMode("fallback", { reason: `the model failed to load (${err?.message || err}).` });
+    setMode("load_error", { reason: `${err?.message || err}` });
   }
 }
 

@@ -3,10 +3,15 @@
 // path never touches the network. The model satisfies the same `act(messages)`
 // seam the loop expects, returning a single JSON action per turn.
 
+import { sleep } from "./util.js";
+
 // Pinned for reproducibility; drop the @version to always fetch the latest.
 const WEBLLM_URL = "https://esm.run/@mlc-ai/web-llm@0.2.84";
 
 const MAX_TOKENS = 512;
+// A ~1GB weights download can drop a shard; give transient failures a few tries
+// before surfacing the error so a single hiccup doesn't hard-fail the load.
+const LOAD_ATTEMPTS = 3;
 
 // Qwen2.5 instruct family from WebLLM's prebuilt list (all low-resource, q4f16_1).
 // 0.5B is too weak for reliable JSON tool use, so the demo defaults to 1.5B —
@@ -65,7 +70,36 @@ export async function probeAdapter() {
 
 export async function createWebLLMModel({ modelId = DEFAULT_MODEL_ID, onProgress } = {}) {
   const webllm = await import(/* @vite-ignore */ WEBLLM_URL);
-  const engine = await webllm.CreateMLCEngine(modelId, { initProgressCallback: onProgress });
+
+  // Store weights via IndexedDB instead of the default Cache API. WebLLM's Cache
+  // path is what throws "Failed to execute 'add' on 'Cache': Request failed" when
+  // a shard fetch hiccups on a big download; IndexedDB sidesteps that error class.
+  // (In web-llm@0.2.84 the knob is `cacheBackend`, not the older `useIndexedDBCache`.)
+  const appConfig = { ...webllm.prebuiltAppConfig, cacheBackend: "indexeddb" };
+  const engine = new webllm.MLCEngine({ appConfig, initProgressCallback: onProgress });
+
+  let lastError = null;
+  for (let attempt = 1; attempt <= LOAD_ATTEMPTS; attempt += 1) {
+    try {
+      console.info(`[deputy] loading ${modelId} (attempt ${attempt}/${LOAD_ATTEMPTS})`);
+      await engine.reload(modelId);
+      lastError = null;
+      break;
+    } catch (err) {
+      lastError = err;
+      console.warn(`[deputy] model load attempt ${attempt} failed:`, err);
+      if (attempt < LOAD_ATTEMPTS) await sleep(1200 * attempt);
+    }
+  }
+  if (lastError) {
+    try {
+      await engine.unload?.();
+    } catch {
+      /* best effort — free the GPU so a later retry starts clean */
+    }
+    throw lastError;
+  }
+
   return {
     kind: "webllm",
     engine,
