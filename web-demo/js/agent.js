@@ -49,16 +49,51 @@ function extractFinalText(raw, registry) {
   return cleaned.length >= 8 ? cleaned : null;
 }
 
-// The guaranteed floor: even if the model never cooperates, stitch the real
-// tool observations into an answer so the UI never shows "no answer".
+// The guaranteed floor: even if the model never writes a synthesis, assemble a
+// task-shaped answer from the real observations — grouped by source and calling
+// out any reminder actually saved — so the UI shows something readable rather
+// than a raw concatenation of tool output, and never "no answer".
 function deterministicSummary(goal, findings) {
-  const useful = findings
-    .map((f) => String(f.observation).trim())
-    .filter((text) => text && !/^(No (files|notes|events)\b|Provide a non-empty)/i.test(text));
-  if (!useful.length) {
-    return `I searched your notes, files, and calendar but couldn't find anything that answers "${goal}". Try different keywords, or run the scripted demo with ?fallback=1.`;
+  const isNoise = (text) =>
+    !text ||
+    /^(No (files|notes|events)\b|Provide a non-empty)/i.test(text) ||
+    /^(ValueError|FileNotFoundError|PathEscapeError|Error)\b/.test(text);
+  const excerpt = (text) => {
+    const t = String(text).trim();
+    return t.length > 280 ? `${t.slice(0, 280).trimEnd()}\u2026` : t;
+  };
+
+  const calendar = [];
+  const notes = [];
+  const files = [];
+  const saved = [];
+  for (const f of findings) {
+    if (f.tool === "add_note") {
+      const text = String(f.args?.text ?? "").trim();
+      if (text) saved.push(text);
+      continue;
+    }
+    const obs = String(f.observation ?? "").trim();
+    if (isNoise(obs)) continue;
+    if (f.tool === "list_events") calendar.push(excerpt(obs));
+    else if (f.tool === "search_notes") notes.push(excerpt(obs));
+    else files.push(excerpt(obs)); // search_files / read_file
   }
-  return `Here's what I found for "${goal}":\n\n${useful.join("\n\n")}`;
+
+  const sections = [];
+  if (calendar.length) sections.push(`Calendar:\n${[...new Set(calendar)].join("\n")}`);
+  if (notes.length) sections.push(`Notes:\n${[...new Set(notes)].join("\n")}`);
+  if (files.length) sections.push(`Files:\n${[...new Set(files)].join("\n")}`);
+
+  const out = [];
+  if (sections.length) out.push(`Here's what I found:\n\n${sections.join("\n\n")}`);
+  if (saved.length) {
+    out.push(`I saved a reminder: ${[...new Set(saved)].map((t) => `"${t}"`).join("; ")}.`);
+  }
+  if (!out.length) {
+    return `I looked through your notes, files, and calendar but couldn't find anything that answers "${goal}". Try different keywords, or run the scripted demo with ?fallback=1.`;
+  }
+  return out.join("\n\n");
 }
 
 function extractJson(raw) {

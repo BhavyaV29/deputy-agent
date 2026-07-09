@@ -14,29 +14,31 @@ const MAX_TOKENS = 512;
 const LOAD_ATTEMPTS = 3;
 
 // Qwen2.5 instruct family from WebLLM's prebuilt list (all low-resource, q4f16_1).
-// 0.5B is too weak for reliable JSON tool use, so the demo defaults to 1.5B —
-// the smallest that completes the preset tasks — with 3B for the most capable.
+// 0.5B is too weak for reliable multi-step tool use, so the demo defaults to
+// 1.5B — the smallest that completes all three presets acceptably at a download
+// most people can wait through (~1 GB) — while 3B is offered for the best
+// multi-step reasoning when the extra ~2 GB is worth it.
 export const MODELS = [
   {
     id: "Qwen2.5-0.5B-Instruct-q4f16_1-MLC",
     size: "0.5B",
     tier: "fastest",
     download: "~350 MB",
-    note: "fastest download, but often loops on tool use",
+    note: "fastest download, but may miss steps on multi-step tasks",
   },
   {
     id: "Qwen2.5-1.5B-Instruct-q4f16_1-MLC",
     size: "1.5B",
     tier: "recommended",
     download: "~1 GB",
-    note: "best balance of size and reliability",
+    note: "recommended balance \u2014 handles the demo tasks well",
   },
   {
     id: "Qwen2.5-3B-Instruct-q4f16_1-MLC",
     size: "3B",
     tier: "most capable",
     download: "~2 GB",
-    note: "most reliable, largest download",
+    note: "best multi-step reasoning, largest download",
   },
 ];
 

@@ -209,6 +209,16 @@ main {
   font-family: var(--mono);
 }
 
+.model-hint {
+  margin: 0;
+  padding: 8px 22px;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--muted);
+  background: var(--panel);
+  border-bottom: 1px solid var(--line);
+}
+
 .modelbar-actions {
   margin-left: auto;
   display: flex;

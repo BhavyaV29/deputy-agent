@@ -26,6 +26,7 @@ const dom = {
   banner: document.getElementById("banner"),
   modelStatus: document.getElementById("model-status"),
   modelSelect: document.getElementById("model-select"),
+  modelHint: document.getElementById("model-hint"),
   loadBtn: document.getElementById("load-btn"),
   scriptedBtn: document.getElementById("scripted-btn"),
   progress: document.getElementById("progress"),
@@ -91,6 +92,8 @@ function applyEnablement() {
 
   dom.modelSelect.hidden = !gpuMode;
   dom.modelSelect.disabled = !(idle && (ready || loaded || loadError));
+  // The model-choice hint is only relevant while the picker is on screen.
+  dom.modelHint.hidden = !gpuMode;
 
   dom.loadBtn.hidden = !(canLoad || loading);
   dom.loadBtn.disabled = !(canLoad && idle);
