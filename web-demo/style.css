@@ -59,6 +59,12 @@ body {
   background: var(--bg);
   font-size: 15px;
   line-height: 1.5;
+  /* A definite height lets the transcript scroll internally instead of growing
+     the page; dvh tracks the mobile URL bar so the composer stays reachable, with
+     a vh fallback. No overflow:hidden here — on a pathologically short (landscape)
+     screen the viewport can still scroll to the input rather than clip it. */
+  height: 100vh;
+  height: 100dvh;
 }
 
 .topbar {
@@ -150,11 +156,36 @@ body {
 
 .banner {
   margin: 0;
-  padding: 10px 22px;
+  padding: 9px 16px 9px 22px;
   font-size: 13px;
   border-bottom: 1px solid var(--line);
   color: var(--muted);
   background: var(--panel);
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+#banner-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.banner-dismiss {
+  flex: none;
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  font-size: 20px;
+  line-height: 1;
+  padding: 0 4px;
+  margin: -2px 0;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.banner-dismiss:hover {
+  color: var(--fg);
 }
 
 .banner.warn {
@@ -199,7 +230,7 @@ main {
   align-items: center;
   gap: 14px;
   flex-wrap: wrap;
-  padding: 12px 22px;
+  padding: 10px 22px;
   border-bottom: 1px solid var(--line);
 }
 
@@ -209,14 +240,41 @@ main {
   font-family: var(--mono);
 }
 
+/* Collapsed by default so the verbose model guidance is one short line, not a
+   permanent multi-line block; native <details> keeps it keyboard-accessible. */
 .model-hint {
+  background: var(--panel);
+  border-bottom: 1px solid var(--line);
+}
+
+.model-hint > summary {
+  padding: 7px 22px;
+  font-size: 12px;
+  color: var(--muted);
+  cursor: pointer;
+  list-style: none;
+  user-select: none;
+}
+
+.model-hint > summary::-webkit-details-marker {
+  display: none;
+}
+
+.model-hint > summary::before {
+  content: "\24D8"; /* circled i */
+  margin-right: 6px;
+}
+
+.model-hint[open] > summary {
+  color: var(--fg);
+}
+
+.model-hint p {
   margin: 0;
-  padding: 8px 22px;
+  padding: 0 22px 10px;
   font-size: 12px;
   line-height: 1.45;
   color: var(--muted);
-  background: var(--panel);
-  border-bottom: 1px solid var(--line);
 }
 
 .modelbar-actions {
@@ -306,10 +364,13 @@ main {
   text-overflow: ellipsis;
 }
 
+/* The primary region: grows to fill all height the compact chrome leaves and
+   scrolls internally, so the conversation is always the tallest thing on screen. */
 .transcript {
   flex: 1;
+  min-height: 0;
   overflow-y: auto;
-  padding: 24px;
+  padding: 20px 24px;
   display: flex;
   flex-direction: column;
   gap: 14px;
@@ -664,12 +725,135 @@ main {
   font-family: var(--mono);
 }
 
-@media (max-width: 620px) {
+/* Phones (reason about ~375px): trim every fixed region so the transcript keeps
+   the majority of the screen, stack controls, and turn the task chips into one
+   swipeable row so they never crowd the input. */
+@media (max-width: 640px) {
+  body {
+    font-size: 14px;
+  }
+
+  .topbar {
+    padding: 10px 14px;
+    gap: 10px;
+  }
+
+  .brand-text h1 {
+    font-size: 16px;
+  }
+
+  .tagline {
+    display: none; /* reclaim a row; the h1 still identifies the app */
+  }
+
+  .badge {
+    display: none; /* keep the header on one row at ~375px */
+  }
+
+  .banner {
+    padding: 8px 10px 8px 14px;
+    font-size: 12.5px;
+  }
+
+  /* Bound the banner's default height on narrow screens; the full text remains
+     available to screen readers, and the dismiss button removes it entirely. */
+  #banner-text {
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 3;
+    line-clamp: 3;
+    overflow: hidden;
+  }
+
+  .modelbar {
+    padding: 8px 14px;
+    gap: 8px;
+  }
+
+  .model-status {
+    font-size: 12px;
+  }
+
+  .modelbar-actions {
+    margin-left: 0;
+    width: 100%;
+    flex-wrap: wrap;
+  }
+
+  .modelbar-actions .ghost,
+  .modelbar-actions .solid {
+    flex: 1 1 auto;
+    text-align: center;
+  }
+
+  .model-select {
+    flex: 1 1 100%;
+  }
+
+  .model-hint > summary {
+    padding: 6px 14px;
+  }
+
+  .model-hint p {
+    padding: 0 14px 8px;
+  }
+
+  .transcript {
+    padding: 14px 12px;
+    gap: 10px;
+  }
+
+  .entry {
+    padding: 10px 12px;
+  }
+
+  .entry.final .text {
+    font-size: 15px;
+  }
+
+  .tray {
+    padding: 8px 12px calc(10px + env(safe-area-inset-bottom));
+  }
+
+  .tray-label {
+    margin-bottom: 6px;
+  }
+
+  /* Single horizontally-scrollable row instead of a tall wrapping grid. */
+  .presets {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    margin-bottom: 8px;
+    padding-bottom: 4px;
+    scrollbar-width: thin;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .chip {
+    flex: 0 0 auto;
+    max-width: 78vw;
+  }
+
+  .composer {
+    gap: 8px;
+  }
+
+  #message {
+    font-size: 16px; /* >=16px stops iOS from auto-zooming on focus */
+  }
+
+  #send {
+    padding: 11px 16px;
+  }
+
+  .audit-head,
+  .audit-body {
+    padding-left: 14px;
+    padding-right: 14px;
+  }
+
   .record {
     grid-template-columns: 1fr;
     gap: 2px;
-  }
-  .modelbar-actions {
-    margin-left: 0;
   }
 }

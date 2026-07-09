@@ -32,7 +32,12 @@
       </nav>
     </header>
 
-    <p id="banner" class="banner info" aria-live="polite">Loading the scripted walkthrough&hellip;</p>
+    <div id="banner" class="banner info" role="status" aria-live="polite">
+      <span id="banner-text">Loading the scripted walkthrough&hellip;</span>
+      <button id="banner-dismiss" type="button" class="banner-dismiss" aria-label="Dismiss this message" title="Dismiss">
+        &times;
+      </button>
+    </div>
 
     <main>
       <section id="demo" class="view active">
@@ -58,11 +63,14 @@
           </div>
         </div>
 
-        <p id="model-hint" class="model-hint" hidden>
-          Experimental on-device mode &mdash; smaller models may wander or loop. 1.5B (default) usually completes the
-          demos, 3B is the most reliable, and 0.5B is fastest to download but the roughest (not recommended for these
-          tasks). Prefer a sure thing? Go back to the scripted walkthrough.
-        </p>
+        <details id="model-hint" class="model-hint" hidden>
+          <summary>About on-device models</summary>
+          <p>
+            Experimental on-device mode &mdash; smaller models may wander or loop. 1.5B (default) usually completes the
+            demos, 3B is the most reliable, and 0.5B is fastest to download but the roughest (not recommended for these
+            tasks). Prefer a sure thing? Go back to the scripted walkthrough.
+          </p>
+        </details>
 
         <div id="transcript" class="transcript" aria-live="polite"></div>
 

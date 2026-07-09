@@ -24,6 +24,8 @@ const registry = createRegistry();
 
 const dom = {
   banner: document.getElementById("banner"),
+  bannerText: document.getElementById("banner-text"),
+  bannerDismiss: document.getElementById("banner-dismiss"),
   modelStatus: document.getElementById("model-status"),
   modelSelect: document.getElementById("model-select"),
   modelHint: document.getElementById("model-hint"),
@@ -61,8 +63,9 @@ const state = {
 const currentModel = () => modelById(state.modelId);
 
 function setBanner(text, kind) {
-  dom.banner.textContent = text;
+  dom.bannerText.textContent = text;
   dom.banner.className = `banner ${kind}`;
+  dom.banner.hidden = false; // a new state's message reappears even if dismissed
 }
 
 function chipsEnabled(on) {
@@ -125,11 +128,10 @@ function setMode(next, { reason } = {}) {
       // as an error. A live-unavailable reason gets an honest note instead.
       const unavailable = state.fallbackReason.startsWith("live-unavailable:");
       const base =
-        "Scripted walkthrough \u2014 runs instantly with no download and completes every demo correctly: " +
-        "plan \u2192 tool \u2192 approval \u2192 audit \u2192 final answer. Pick a task below.";
+        "Scripted walkthrough \u2014 plan \u2192 tool \u2192 approval \u2192 audit \u2192 final answer, instantly and with no download. Pick a task below.";
       const tail = unavailable
         ? ` On-device mode isn't available here (${state.fallbackReason.slice("live-unavailable:".length).trim()}).`
-        : " Want to watch it drive a real model instead? Use \u201cRun it for real\u201d (experimental \u2014 downloads a small model).";
+        : " Want a real model? Use \u201cRun it for real\u201d (experimental).";
       setBanner(base + tail, unavailable ? "warn" : "info");
       dom.modelStatus.textContent = "Scripted walkthrough \u00b7 no model loaded";
       dom.progress.hidden = true;
@@ -138,7 +140,7 @@ function setMode(next, { reason } = {}) {
     case "ready": {
       const model = currentModel();
       setBanner(
-        `Experimental on-device mode. WebGPU is available \u2014 pick a model and load it for real inference: a one-time ${model.download} download (${model.note}), then it runs fully in your browser. Prefer the sure thing? Use \u201cBack to scripted walkthrough.\u201d`,
+        `Experimental on-device mode \u2014 pick a model and load it (one-time ${model.download} download), then it runs fully in your browser. See \u201cAbout on-device models\u201d for which to pick.`,
         "info",
       );
       dom.modelStatus.textContent = "On-device model: ready to load (experimental)";
@@ -147,7 +149,7 @@ function setMode(next, { reason } = {}) {
     }
     case "loading":
       setBanner(
-        `Downloading and compiling ${modelLabel(currentModel())} (${currentModel().download}). This happens once and is cached for next time \u2014 nothing leaves your machine.`,
+        `Downloading ${modelLabel(currentModel())} (${currentModel().download}) \u2014 one-time, cached for next time, fully on-device.`,
         "info",
       );
       dom.modelStatus.textContent = "Loading model\u2026";
@@ -155,7 +157,7 @@ function setMode(next, { reason } = {}) {
       break;
     case "loaded":
       setBanner(
-        `Live (experimental): loaded ${modelLabel(currentModel())} on-device \u2014 everything below runs locally, nothing leaves your machine. Smaller models may wander; use \u201cBack to scripted walkthrough\u201d for the reliable version.`,
+        `Live (experimental): ${modelLabel(currentModel())} loaded \u2014 runs fully in your browser, nothing leaves your machine.`,
         "ok",
       );
       dom.modelStatus.textContent = `On-device model: ${modelLabel(currentModel())} \u2713 (experimental)`;
@@ -165,7 +167,7 @@ function setMode(next, { reason } = {}) {
       // WebGPU works; the download/cache just failed. Stay recoverable — keep the
       // picker and a Retry button rather than dropping to the scripted walkthrough.
       setBanner(
-        `Model download failed${state.fallbackReason ? ` (${state.fallbackReason})` : ""} \u2014 check your connection and Retry, pick a smaller model, or go back to the scripted walkthrough. Nothing was sent anywhere; you're still fully on-device.`,
+        `Model download failed${state.fallbackReason ? ` (${state.fallbackReason})` : ""} \u2014 check your connection and Retry, or go back to the scripted walkthrough. Nothing left your machine.`,
         "error",
       );
       dom.modelStatus.textContent = "On-device model: download failed \u2014 Retry available";
@@ -384,6 +386,10 @@ function wireControls() {
   dom.loadBtn.addEventListener("click", loadModel);
   dom.liveBtn.addEventListener("click", enterLive);
   dom.scriptedBtn.addEventListener("click", () => setMode("fallback", { reason: "back" }));
+  // Let people reclaim the banner's height; it reappears on the next state change.
+  dom.bannerDismiss.addEventListener("click", () => {
+    dom.banner.hidden = true;
+  });
   dom.auditRefresh.addEventListener("click", () => renderAudit(dom.auditBody, state.runs));
   dom.auditClear.addEventListener("click", () => {
     state.runs = [];
