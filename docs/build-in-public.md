@@ -1,30 +1,72 @@
 # Build-in-public drafts
 
-Drafts for sharing Deputy while job-hunting. Technical, specific, honest — lead with the interesting
-bits, skip the hype. The links below are filled in, but the demo URL is the **expected Render Static
-Site URL (`https://deputy-web-demo.onrender.com`) — confirm it after your first deploy** and update it
-here if your service name differs. Attach the demo capture from [`media/`](media/README.md) before posting.
+Staged, ready-to-post launch content for Deputy — technical, specific, honest. Lead with the interesting
+bits, skip the hype. This is Deputy's canonical in-repo copy; a separate cross-project posting queue may
+stage these next to other work, so keep this file focused on Deputy alone.
 
-All numbers below are from this repo's [eval](eval_results.md) and test suite — keep them accurate if
-you edit.
+Two links belong in every post:
+
+- **Live demo (no install):** <https://deputy-web-demo.onrender.com>
+- **Repo:** <https://github.com/BhavyaV29/deputy-agent>
+
+The live demo runs Deputy's whole agent loop client-side in the browser (WebGPU, dark-mode UI) over a
+sandboxed sample corpus — plan → tool → observation → answer, with the mutating step paused for an
+in-page **Approve / Deny**. Nothing leaves the tab. All numbers below come from this repo's
+[eval](eval_results.md) and test suite — keep them accurate if you edit.
+
+Suggested cadence: post **Stage 1** first, then **Stage 2** a few days later once people have clicked
+through, and **Stage 3** to close the arc. Each stage stands alone, so order isn't load-bearing.
 
 ---
 
-## 1. X / Twitter thread
+## Stage 1 — Launch
+
+### LinkedIn
+
+I built **Deputy**: a private AI agent that runs entirely on your own machine.
+
+It works your own files, calendar, and notes, runs a small local model through Ollama, and — the part I
+care most about — asks before it does anything that writes. No cloud, no API keys; nothing leaves your
+device unless you explicitly opt in.
+
+You can try the whole thing in your browser right now, no install. The demo runs a small model
+client-side via WebGPU over a sandboxed sample corpus, streams plan → tool → observation → answer, and
+pauses the one mutating step for an in-page Approve / Deny. It's a dark-mode single tab, and nothing
+leaves it.
+
+▶ Live demo: https://deputy-web-demo.onrender.com
+Code + architecture notes: https://github.com/BhavyaV29/deputy-agent
+
+More soon on the one decision that made a 3B local model reliable enough to trust in a loop.
+
+### X / Twitter
+
+I built Deputy: a private AI agent that runs entirely on your own machine.
+
+Works your own files, runs a small local model, and asks before it writes anything. No cloud, no API
+keys — nothing leaves the device unless you opt in.
+
+Try the whole loop in your browser, no install — runs client-side via WebGPU, nothing leaves the tab:
+▶ https://deputy-web-demo.onrender.com
+Code: https://github.com/BhavyaV29/deputy-agent
+
+---
+
+## Stage 2 — Technical deep-dive
+
+### X / Twitter thread
 
 **1/**
-I built Deputy: a private AI agent that runs entirely on your own machine, works your own files, and
-asks before it does anything that writes.
+Deputy is a private AI agent that runs a small model entirely on your machine. The hard part wasn't
+intelligence — it was reliability.
 
-No cloud, no API keys. Nothing leaves the device unless you opt in.
-
-A thread on how it works — and the one decision that made it reliable.
+Here's the one decision that made a 3B model trustworthy inside an agent loop. 🧵
 
 **2/**
-The hard part of a *small local* agent isn't intelligence, it's reliability.
+The wall you hit first with a *small local* agent isn't reasoning, it's format.
 
 A 3B model constantly emits *almost*-valid JSON — an extra sentence, a trailing comma — and one bad step
-crashes the whole loop. That's the wall you hit first.
+crashes the whole loop.
 
 **3/**
 The fix: constrained decoding.
@@ -39,7 +81,7 @@ qwen2.5:3b, same suite:
 
 **4/**
 The subtle part: the schema constrains *shape*, not *choice*. It removes malformed-JSON failures by
-construction — not by prompt-tweaking or retries — while routing quality still tracks the model.
+construction — not by prompt-tweaking or retries — while which tool to call still tracks the model.
 
 Boring lever, huge payoff.
 
@@ -63,17 +105,15 @@ sits behind a protocol with a fake, so the suite runs with no Ollama — and a s
 *real* agent to measure reliability.
 
 **8/**
-Writeup, architecture doc, and the eval methodology are in the repo:
-https://github.com/BhavyaV29/deputy-agent
-
-Demo (start a task → live action stream → approval gate → audit view):
+Run the whole loop in your browser (client-side, WebGPU, nothing leaves the tab):
 https://deputy-web-demo.onrender.com
+
+Writeup, architecture doc, and the eval methodology:
+https://github.com/BhavyaV29/deputy-agent
 
 Happy to talk through any of the design decisions.
 
----
-
-## 2. LinkedIn post
+### LinkedIn
 
 I spent the last stretch building **Deputy** — a private, on-device AI agent, written in Python — and I
 want to share the one engineering decision that made it actually work.
@@ -107,33 +147,80 @@ Rounding it out: tools over MCP, on-device retrieval with sqlite-vec and citatio
 and a loopback FastAPI UI with a live action stream and in-browser approvals. 199 tests, all runnable
 offline against fakes, plus a reliability eval that exercises the real agent.
 
-Writeup and architecture notes here: https://github.com/BhavyaV29/deputy-agent
+Try the whole loop in your browser, no install: https://deputy-web-demo.onrender.com
+Code and architecture notes: https://github.com/BhavyaV29/deputy-agent
 
 Always happy to talk agents, local models, or reliability engineering.
 
 ---
 
-## 3. Short standalone post (X or LinkedIn)
+## Stage 3 — What I learned
+
+### LinkedIn
+
+The most useful thing I learned building **Deputy** (a local-model AI agent): with small models,
+reliability is a *format* problem before it's an *intelligence* problem.
+
+A 3B model is smart enough to pick the right tool. What it can't do reliably is emit clean JSON on every
+single step — and in an agent loop, one malformed step crashes the whole run. I spent far less time on
+prompting than I expected, and far more on making bad output impossible.
+
+The lever that worked: constrained decoding. Pass a JSON schema to the runtime (one branch per tool + a
+final-answer branch) so the model can only ever produce a valid call or an answer. Same task suite,
+qwen2.5:3b: task success 29% → 88%, schema-valid steps 71% → 100%, loop crashes 11 → 0.
+
+The framing I keep reusing: it constrains *shape*, not *choice*. You remove a whole class of failure by
+construction, without touching the model's judgment about which tool to use.
+
+Second lesson: put safety in the loop, not the prompt. Writes pause for a human yes/no and every action
+lands in an append-only audit log — so the guarantee holds even when the model's output degrades, not
+just when it cooperates.
+
+See it run in your browser (no install): https://deputy-web-demo.onrender.com
+Code: https://github.com/BhavyaV29/deputy-agent
+
+### X / Twitter
+
+Building a local-model agent taught me: reliability is a *format* problem before it's an *intelligence*
+problem.
+
+A 3B model picks the right tool fine. It just can't emit clean JSON every step — and one bad step crashes
+the loop.
+
+Constrained decoding fixed it (shape, not choice): task success 29% → 88%.
+
+Demo: https://deputy-web-demo.onrender.com
+Code: https://github.com/BhavyaV29/deputy-agent
+
+---
+
+## Bonus — one-liner (single post, either platform)
 
 Constrained decoding is the most underrated reliability lever for local-model agents.
 
-I passed a JSON schema (one branch per tool + a final-answer branch) to the runtime so my on-device
-agent can only ever emit a valid tool call or an answer.
+I pass a JSON schema (one branch per tool + a final-answer branch) to the runtime so my on-device agent
+can only ever emit a valid tool call or an answer.
 
 qwen2.5:3b, same task suite:
 • task success 29% → 88%
 • schema-valid steps 71% → 100%
 • loop crashes 11 → 0
 
-It fixes *shape*, not *choice* — so you remove the malformed-output failures without touching the model's
-judgment. Writeup: https://github.com/BhavyaV29/deputy-agent
+It fixes *shape*, not *choice* — you remove the malformed-output failures without touching the model's
+judgment.
+
+Try it: https://deputy-web-demo.onrender.com · Code: https://github.com/BhavyaV29/deputy-agent
 
 ---
 
 ### Posting notes
 
-- **Attach the demo.** The thread/post is far stronger with the capture from `docs/media/` — the approval
-  pause is the moment that lands.
+- **Two links, every post.** The live demo (<https://deputy-web-demo.onrender.com>) and the repo
+  (<https://github.com/BhavyaV29/deputy-agent>) should both be present — the demo is the hook, the repo
+  is the proof.
+- **Lead with the demo.** People clicking through and hitting the approval pause themselves lands harder
+  than any screenshot; the recorded capture in `docs/media/` is a good fallback for platforms where the
+  link preview is weak.
 - **Numbers are real.** They come from `docs/eval_results.md` (qwen2.5:3b, grammar vs freeform). Don't
   round them up.
 - **Tone check.** Keep it matter-of-fact. The reliability delta and the trust story sell themselves.

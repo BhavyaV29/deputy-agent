@@ -8,21 +8,42 @@ const WEBLLM_URL = "https://esm.run/@mlc-ai/web-llm@0.2.84";
 
 const MAX_TOKENS = 512;
 
-// Smallest genuinely useful instruct model in WebLLM's prebuilt list.
-export const MODEL = {
-  id: "Qwen2.5-0.5B-Instruct-q4f16_1-MLC",
-  label: "Qwen2.5-0.5B-Instruct (q4f16_1)",
-  download: "~300 MB of weights, downloaded once and cached by the browser",
-  vram: "~0.95 GB of GPU memory at runtime",
-};
+// Qwen2.5 instruct family from WebLLM's prebuilt list (all low-resource, q4f16_1).
+// 0.5B is too weak for reliable JSON tool use, so the demo defaults to 1.5B —
+// the smallest that completes the preset tasks — with 3B for the most capable.
+export const MODELS = [
+  {
+    id: "Qwen2.5-0.5B-Instruct-q4f16_1-MLC",
+    size: "0.5B",
+    tier: "fastest",
+    download: "~350 MB",
+    note: "fastest download, but often loops on tool use",
+  },
+  {
+    id: "Qwen2.5-1.5B-Instruct-q4f16_1-MLC",
+    size: "1.5B",
+    tier: "recommended",
+    download: "~1 GB",
+    note: "best balance of size and reliability",
+  },
+  {
+    id: "Qwen2.5-3B-Instruct-q4f16_1-MLC",
+    size: "3B",
+    tier: "most capable",
+    download: "~2 GB",
+    note: "most reliable, largest download",
+  },
+];
 
-// A slightly stronger 1B alternative — bigger download, still low-resource.
-export const ALT_MODEL = {
-  id: "Llama-3.2-1B-Instruct-q4f16_1-MLC",
-  label: "Llama-3.2-1B-Instruct (q4f16_1)",
-  download: "~880 MB of weights",
-  vram: "~1.1 GB of GPU memory at runtime",
-};
+export function modelLabel(model) {
+  return `Qwen2.5-${model.size}-Instruct`;
+}
+
+export const DEFAULT_MODEL_ID = "Qwen2.5-1.5B-Instruct-q4f16_1-MLC";
+
+export function modelById(id) {
+  return MODELS.find((model) => model.id === id) || MODELS.find((model) => model.id === DEFAULT_MODEL_ID);
+}
 
 export function webgpuSupport() {
   if (typeof navigator === "undefined" || !("gpu" in navigator) || !navigator.gpu) {
@@ -42,7 +63,7 @@ export async function probeAdapter() {
   }
 }
 
-export async function createWebLLMModel({ modelId = MODEL.id, onProgress } = {}) {
+export async function createWebLLMModel({ modelId = DEFAULT_MODEL_ID, onProgress } = {}) {
   const webllm = await import(/* @vite-ignore */ WEBLLM_URL);
   const engine = await webllm.CreateMLCEngine(modelId, { initProgressCallback: onProgress });
   return {

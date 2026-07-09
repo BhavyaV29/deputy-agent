@@ -33,6 +33,8 @@ later phase can require approval before they run.
 
 const PASTA_MD = `# Weeknight pasta
 
+A quick weeknight dinner you can cook tonight in about fifteen minutes.
+
 Warm garlic in olive oil, but don't let it brown. Add a pinch of chilli, then
 a tin of tomatoes and a little salt. Let it simmer while the pasta cooks.
 
@@ -76,3 +78,10 @@ export const CALENDAR = [
   { date: "2026-07-09", start: "11:00", end: "12:00", title: "Dentist", location: "" },
   { date: "2026-07-10", start: "16:00", end: "17:00", title: "Grocery run", location: "" },
 ];
+
+// The window the sample events span. Surfaced in the system prompt and by
+// `list_events` so the model can form a range that actually returns something
+// instead of guessing a single date that misses the sample data entirely.
+const CALENDAR_DATES = CALENDAR.map((event) => event.date).sort();
+export const CALENDAR_START = CALENDAR_DATES[0];
+export const CALENDAR_END = CALENDAR_DATES[CALENDAR_DATES.length - 1];

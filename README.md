@@ -2,6 +2,11 @@
 
 **A private, on-device AI agent that works your own files and runs tasks — and asks before it acts.**
 
+**▶ [Try the live browser demo — no install](https://deputy-web-demo.onrender.com)** — Deputy's full
+agent loop runs entirely client-side (WebGPU) over sandboxed sample data: plan → tool → observation →
+answer, with the mutating step paused for an in-page approval and every action logged. Nothing leaves
+the tab.
+
 Deputy runs a small local model (via [Ollama](https://ollama.com)) in a bounded agent loop, calls
 tools through [MCP](https://modelcontextprotocol.io), retrieves from your own documents on-device, and
 records every action behind approval gates before anything is written. Nothing leaves your machine
@@ -301,7 +306,7 @@ Two ways to see Deputy work: run the **in-browser demo** below (no install), or 
 
 [`web-demo/`](web-demo/) is a self-contained, static demo that runs Deputy's whole agent loop **entirely client-side**: a small model (Qwen2.5-0.5B) runs in your browser via WebLLM/WebGPU over a sandboxed sample corpus, streaming plan → tool → observation → answer, pausing the mutating step for an in-page **Approve / Deny**, and logging every action — nothing leaves the tab. It mirrors the privacy story the real app makes on your own machine.
 
-- **Live demo:** <https://deputy-web-demo.onrender.com> — **expected [Render](https://render.com) Static Site URL; confirm after the first deploy** (swap it if your service name differs). Published from `web-demo/` via the repo's [`render.yaml`](render.yaml) with no build step; it's plain static files, so any static host (Netlify / Vercel / GitHub Pages) works too.
+- **Live demo:** **<https://deputy-web-demo.onrender.com>** — live now, no install required. Published from `web-demo/` via the repo's [`render.yaml`](render.yaml) as a [Render](https://render.com) Static Site with no build step; it's plain static files, so any static host (Netlify / Vercel / GitHub Pages) works too.
 - **Run locally:** `cd web-demo && python3 -m http.server 8000`, then open `http://localhost:8000`.
 - **No WebGPU?** It auto-detects and falls back to a scripted transcript so it always works; force that path with `?fallback=1`.
 

@@ -5,7 +5,7 @@
 import { createRegistry } from "./tools.js";
 import { runAgent } from "./agent.js";
 import { SCENARIOS, scriptedModel } from "./scenarios.js";
-import { webgpuSupport, probeAdapter, createWebLLMModel, MODEL } from "./llm.js";
+import { webgpuSupport, probeAdapter, createWebLLMModel, MODELS, DEFAULT_MODEL_ID, modelById, modelLabel } from "./llm.js";
 import {
   el,
   clear,
@@ -25,6 +25,7 @@ const registry = createRegistry();
 const dom = {
   banner: document.getElementById("banner"),
   modelStatus: document.getElementById("model-status"),
+  modelSelect: document.getElementById("model-select"),
   loadBtn: document.getElementById("load-btn"),
   scriptedBtn: document.getElementById("scripted-btn"),
   progress: document.getElementById("progress"),
@@ -46,11 +47,14 @@ const dom = {
 const state = {
   mode: "checking", // checking | fallback | ready | loading | loaded
   model: null,
+  modelId: DEFAULT_MODEL_ID,
   running: false,
   forcedFallback: false,
   fallbackReason: "",
   runs: [],
 };
+
+const currentModel = () => modelById(state.modelId);
 
 function setBanner(text, kind) {
   dom.banner.textContent = text;
@@ -78,6 +82,10 @@ function applyEnablement() {
 
   chipsEnabled((loaded || fallback) && idle);
 
+  const gpuMode = state.mode === "ready" || state.mode === "loading" || loaded;
+  dom.modelSelect.hidden = !gpuMode;
+  dom.modelSelect.disabled = !(idle && (state.mode === "ready" || loaded));
+
   dom.loadBtn.hidden = !(state.mode === "ready" || state.mode === "loading");
   dom.loadBtn.disabled = !(state.mode === "ready" && idle);
   dom.scriptedBtn.hidden = state.mode !== "ready";
@@ -102,17 +110,19 @@ function setMode(next, { reason } = {}) {
       dom.modelStatus.textContent = "On-device model: not loaded (scripted demo)";
       dom.progress.hidden = true;
       break;
-    case "ready":
+    case "ready": {
+      const model = currentModel();
       setBanner(
-        `WebGPU is available. Load ${MODEL.label} (${MODEL.download}) for real on-device inference \u2014 or try a scripted demo with no download.`,
+        `WebGPU is available. Pick a model and load it for real on-device inference: a one-time ${model.download} download (${model.note}), then it runs fully in your browser \u2014 or try a scripted demo with no download.`,
         "info",
       );
       dom.modelStatus.textContent = "On-device model: ready to load";
       dom.progress.hidden = true;
       break;
+    }
     case "loading":
       setBanner(
-        "Downloading and compiling the model. This happens once and is cached for next time \u2014 nothing leaves your machine.",
+        `Downloading and compiling ${modelLabel(currentModel())} (${currentModel().download}). This happens once and is cached for next time \u2014 nothing leaves your machine.`,
         "info",
       );
       dom.modelStatus.textContent = "Loading model\u2026";
@@ -120,10 +130,10 @@ function setMode(next, { reason } = {}) {
       break;
     case "loaded":
       setBanner(
-        `Loaded ${MODEL.label} on-device. Everything below runs locally in your browser \u2014 nothing leaves your machine.`,
+        `Loaded ${modelLabel(currentModel())} on-device. Everything below runs locally in your browser \u2014 nothing leaves your machine.`,
         "ok",
       );
-      dom.modelStatus.textContent = `On-device model: ${MODEL.label} \u2713`;
+      dom.modelStatus.textContent = `On-device model: ${modelLabel(currentModel())} \u2713`;
       dom.progress.hidden = true;
       break;
     default:
@@ -147,13 +157,33 @@ async function loadModel() {
   if (state.mode !== "ready" || state.running) return;
   setMode("loading");
   try {
-    state.model = await createWebLLMModel({ onProgress });
+    state.model = await createWebLLMModel({ modelId: state.modelId, onProgress });
     setMode("loaded");
   } catch (err) {
     console.error("Model load failed:", err);
     state.model = null;
     setMode("fallback", { reason: `the model failed to load (${err?.message || err}).` });
   }
+}
+
+function buildModelSelect() {
+  for (const model of MODELS) {
+    const option = el("option", null, `${modelLabel(model)} \u00b7 ${model.tier} \u00b7 ${model.download}`);
+    option.value = model.id;
+    if (model.id === state.modelId) option.selected = true;
+    dom.modelSelect.appendChild(option);
+  }
+  dom.modelSelect.addEventListener("change", () => {
+    if (state.running) return;
+    state.modelId = dom.modelSelect.value;
+    // Switching invalidates any already-loaded engine; drop it and let the user
+    // load the new choice explicitly rather than swapping mid-session.
+    if (state.model) {
+      state.model.dispose?.();
+      state.model = null;
+    }
+    setMode("ready");
+  });
 }
 
 function newRun(goal) {
@@ -220,17 +250,27 @@ function makeHandler(run) {
           `Model output wasn't a valid action (${ev.detail}); asking again.`,
         );
         break;
-      case "run_finished":
-        clearThinking();
-        if (ev.answer != null) {
-          const body = el("div", "text");
-          addEntry(dom.transcript, "final", "Final answer", body);
-          revealAnswer(body, ev.answer);
-        } else {
-          addEntry(dom.transcript, "final", `Stopped \u00b7 ${ev.reason}`, el("div", "text", `No answer within ${ev.step} steps.`));
-        }
-        finishRun(run, { reason: ev.reason, answer: ev.answer });
+      case "repeat":
+        addToolEntry(dom.transcript, "denied", `Step ${ev.step} \u00b7 skipped repeat`, ev.detail);
         break;
+      case "finalizing":
+        clearThinking();
+        addToolEntry(
+          dom.transcript,
+          "denied",
+          `Step ${ev.step} \u00b7 wrapping up`,
+          "Enough gathered (or no further progress) \u2014 summarizing an answer from what was found.",
+        );
+        break;
+      case "run_finished": {
+        clearThinking();
+        const answer = ev.answer != null ? ev.answer : "I wasn't able to complete that on-device. Try rephrasing, or run the scripted demo with ?fallback=1.";
+        const body = el("div", "text");
+        addEntry(dom.transcript, "final", "Final answer", body);
+        revealAnswer(body, answer);
+        finishRun(run, { reason: ev.reason, answer });
+        break;
+      }
       case "error":
         clearThinking();
         addToolEntry(dom.transcript, "denied", "Error", ev.message);
@@ -317,6 +357,7 @@ function wireControls() {
 
 function init() {
   initTheme(dom.themeToggle);
+  buildModelSelect();
   buildPresets();
   wireControls();
 

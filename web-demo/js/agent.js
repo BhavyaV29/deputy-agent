@@ -4,7 +4,7 @@
 // it — the loop itself knows nothing about the DOM or where actions come from
 // (a real WebLLM model or a canned script both satisfy the `model.act` seam).
 
-import { systemPrompt, observationMessage, denialMessage } from "./prompts.js";
+import { systemPrompt, observationMessage, denialMessage, repeatMessage, finalizeMessage } from "./prompts.js";
 import { withDeadline } from "./util.js";
 
 const MAX_STEPS = 8;
@@ -12,20 +12,53 @@ const MAX_STEPS = 8;
 // stalled, so we abort it and surface the failure rather than hang forever.
 const STEP_TIMEOUT_MS = 60_000;
 // A weak model can keep emitting non-JSON. Rather than burn every step retrying,
-// give up after this many consecutive misses and answer with its own prose.
+// give up after this many consecutive misses and synthesize an answer instead.
 const MAX_PARSE_RETRIES = 3;
+// Consecutive steps that add no new information (repeated calls, denials) before
+// we stop looping and force a final answer. Small models otherwise loop forever.
+const MAX_NO_PROGRESS = 3;
 
-// Salvage something presentable from output we couldn't parse into an action,
-// so a run that never yields valid JSON still ends with a message, not silence.
-function degradeToText(raw) {
-  const cleaned = String(raw)
+// A stable key for an (action) so repeated calls are detected regardless of the
+// order the model happens to emit the argument keys in.
+function callKey(tool, args) {
+  const sorted = {};
+  for (const key of Object.keys(args || {}).sort()) sorted[key] = args[key];
+  return `${tool}(${JSON.stringify(sorted)})`;
+}
+
+function cleanText(raw) {
+  return String(raw ?? "")
     .replace(/```[a-z]*\n?/gi, "")
     .replace(/```/g, "")
     .trim();
-  if (cleaned.length >= 8 && /[a-z]/i.test(cleaned)) {
-    return cleaned.length > 1200 ? `${cleaned.slice(0, 1200)}\u2026` : cleaned;
+}
+
+// Pull a usable final answer out of a synthesis turn: a proper {"final": ...},
+// or failing that any prose the model wrote — but never a leftover tool-call
+// blob, which would read as gibberish to the user.
+function extractFinalText(raw, registry) {
+  try {
+    const action = parseAction(raw, registry);
+    if (action.kind === "final") return action.text.trim() || null;
+    return null;
+  } catch {
+    /* not a valid action — fall back to whatever prose it produced */
   }
-  return "I couldn't produce a reliable answer on-device for this one. Try rephrasing, or run a scripted demo.";
+  const cleaned = cleanText(raw);
+  if (!cleaned || cleaned.startsWith("{")) return null;
+  return cleaned.length >= 8 ? cleaned : null;
+}
+
+// The guaranteed floor: even if the model never cooperates, stitch the real
+// tool observations into an answer so the UI never shows "no answer".
+function deterministicSummary(goal, findings) {
+  const useful = findings
+    .map((f) => String(f.observation).trim())
+    .filter((text) => text && !/^(No (files|notes|events)\b|Provide a non-empty)/i.test(text));
+  if (!useful.length) {
+    return `I searched your notes, files, and calendar but couldn't find anything that answers "${goal}". Try different keywords, or run the scripted demo with ?fallback=1.`;
+  }
+  return `Here's what I found for "${goal}":\n\n${useful.join("\n\n")}`;
 }
 
 function extractJson(raw) {
@@ -97,14 +130,45 @@ export async function runAgent({
     { role: "user", content: goal },
   ];
 
+  // Every (tool,args) we've already resolved this run, plus the useful ones for
+  // the fallback summary. `noProgress` counts steps that added nothing new.
+  const attempts = new Map();
+  const findings = [];
   let parseFailures = 0;
+  let noProgress = 0;
+
+  const think = () => withDeadline(stepTimeoutMs, (signal) => model.act(messages, { signal }));
+
+  // One last generation constrained to "answer from what you have", with a
+  // deterministic summary behind it, so a run always ends with something useful.
+  async function finalize(reason, step) {
+    emit({ type: "finalizing", step, reason });
+    // Keep roles alternating (as the loop otherwise does) by folding the
+    // instruction into a trailing user turn rather than stacking a second one.
+    const instruction = finalizeMessage(goal);
+    const last = messages[messages.length - 1];
+    if (last && last.role === "user") last.content = `${last.content}\n\n${instruction}`;
+    else messages.push({ role: "user", content: instruction });
+
+    let answer = null;
+    try {
+      emit({ type: "thinking", step });
+      const raw = await think();
+      console.debug("[deputy] finalize output:", raw);
+      answer = extractFinalText(raw, registry);
+    } catch (err) {
+      console.warn("[deputy] finalize generation failed:", err);
+    }
+    if (!answer) answer = deterministicSummary(goal, findings);
+    emit({ type: "run_finished", step, answer, reason });
+  }
 
   for (let step = 1; step <= maxSteps; step += 1) {
     emit({ type: "thinking", step });
 
     let raw;
     try {
-      raw = await withDeadline(stepTimeoutMs, (signal) => model.act(messages, { signal }));
+      raw = await think();
       console.debug("[deputy] step", step, "output:", raw);
     } catch (err) {
       console.error("[deputy] step", step, "generation failed:", err);
@@ -120,9 +184,8 @@ export async function runAgent({
       parseFailures += 1;
       messages.push({ role: "assistant", content: String(raw) });
       if (parseFailures >= MAX_PARSE_RETRIES) {
-        console.warn("[deputy] no valid action after", parseFailures, "tries; using its text as the answer");
-        emit({ type: "run_finished", step, answer: degradeToText(raw), reason: "unparsed" });
-        return;
+        console.warn("[deputy] no valid action after", parseFailures, "tries; forcing a final answer");
+        return finalize("unparsed", step);
       }
       messages.push({
         role: "user",
@@ -141,6 +204,17 @@ export async function runAgent({
 
     messages.push({ role: "assistant", content: String(raw) });
     const tool = registry.get(action.tool);
+    const key = callKey(action.tool, action.args);
+
+    // Repeat guard (also covers mutating dedup): don't re-run or re-approve a
+    // call we already resolved; nudge the model to change course or finish.
+    if (attempts.has(key)) {
+      emit({ type: "repeat", step, tool: action.tool, detail: `Already ran ${key}. Asking Deputy to try something else.` });
+      messages.push({ role: "user", content: repeatMessage(action.tool, attempts.get(key)) });
+      noProgress += 1;
+      if (noProgress >= MAX_NO_PROGRESS) return finalize("no_progress", step);
+      continue;
+    }
 
     let decision;
     if (!tool.mutating) {
@@ -158,8 +232,11 @@ export async function runAgent({
     }
 
     if (!decision.approved) {
+      attempts.set(key, `declined by the operator`);
       emit({ type: "action_denied", step, tool: action.tool, args: action.args, reason: decision.reason });
       messages.push({ role: "user", content: denialMessage(action.tool, decision.reason) });
+      noProgress += 1;
+      if (noProgress >= MAX_NO_PROGRESS) return finalize("no_progress", step);
       continue;
     }
 
@@ -172,9 +249,12 @@ export async function runAgent({
       observation = `${err?.name || "Error"}: ${err?.message || err}`;
       ok = false;
     }
+    attempts.set(key, String(observation));
+    if (ok) findings.push({ tool: action.tool, args: action.args, observation });
+    noProgress = 0;
     emit({ type: "tool_observed", step, tool: action.tool, args: action.args, ok, observation, reason: decision.reason });
     messages.push({ role: "user", content: observationMessage(action.tool, observation) });
   }
 
-  emit({ type: "run_finished", step: maxSteps, answer: null, reason: "max_steps" });
+  return finalize("max_steps", maxSteps);
 }

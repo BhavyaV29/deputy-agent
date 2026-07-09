@@ -3,7 +3,7 @@
 // by the in-memory corpus in data.js instead of the filesystem. Read-only tools
 // run freely; `add_note` is flagged `mutating`, so the loop gates it on approval.
 
-import { NOTES, FILES, CALENDAR } from "./data.js";
+import { NOTES, FILES, CALENDAR, TODAY, CALENDAR_START, CALENDAR_END } from "./data.js";
 
 const MIN_TERM_LEN = 3;
 const MAX_READ_CHARS = 10_000;
@@ -32,7 +32,7 @@ function searchNotes({ query }) {
     return { score, note };
   });
   const matched = scored.filter((s) => s.score > 0).sort((a, b) => b.score - a.score);
-  if (!matched.length) return `No notes matched '${query}'.`;
+  if (!matched.length) return `No notes matched '${query}'. Try simpler keywords, e.g. "review".`;
   return matched.map(({ note }) => `[${note.created}] ${note.text}`).join("\n");
 }
 
@@ -44,27 +44,31 @@ function addNote({ text }) {
   return `Saved note at ${created}.`;
 }
 
-function firstMatch(text, needle) {
+function firstMatch(text, tokens) {
   for (const raw of text.split("\n")) {
-    if (raw.toLowerCase().includes(needle)) {
-      const line = raw.trim();
-      return line.length <= 200 ? line : line.slice(0, 200) + "...";
+    const line = raw.toLowerCase();
+    if (tokens.some((token) => line.includes(token))) {
+      const trimmed = raw.trim();
+      return trimmed.length <= 200 ? trimmed : trimmed.slice(0, 200) + "...";
     }
   }
   return null;
 }
 
+// Keyword search, not a structured query: tokenize whatever the model sends
+// (even a hallucinated `cuisine:main,ingredients:pasta` DSL) and match a file
+// if its name or text contains ANY token, so "pasta" still finds the recipe.
 function searchFiles({ query }) {
-  const needle = String(query ?? "").trim().toLowerCase();
-  if (!needle) return "Provide a non-empty query.";
+  const wanted = terms(query ?? "");
+  if (!wanted.length) return 'Provide a non-empty query, e.g. search_files(query="pasta").';
   const matches = [];
   for (const rel of Object.keys(FILES).sort()) {
-    if (rel.toLowerCase().includes(needle)) matches.push(`${rel} (filename)`);
-    const line = firstMatch(FILES[rel], needle);
+    if (wanted.some((token) => rel.toLowerCase().includes(token))) matches.push(`${rel} (filename)`);
+    const line = firstMatch(FILES[rel], wanted);
     if (line !== null) matches.push(`${rel}: ${line}`);
     if (matches.length >= MAX_MATCHES) break;
   }
-  if (!matches.length) return `No files matched '${query}'.`;
+  if (!matches.length) return `No files matched '${query}'. Try simpler keywords, e.g. "pasta".`;
   return matches.join("\n");
 }
 
@@ -102,14 +106,19 @@ function listEvents({ date_or_range }) {
   const events = CALENDAR.filter((e) => start <= e.date && e.date <= end).sort((a, b) =>
     `${a.date} ${a.start}`.localeCompare(`${b.date} ${b.start}`),
   );
-  if (!events.length) return `No events between ${start} and ${end}.`;
+  // Tell the model exactly which range holds data, so a single wrong-date guess
+  // becomes a self-correcting hint instead of eight identical empty lookups.
+  if (!events.length) {
+    return `No events between ${start} and ${end}. Scheduled events run from ${CALENDAR_START} to ${CALENDAR_END} \u2014 call list_events(date_or_range="${CALENDAR_START}..${CALENDAR_END}") to see them.`;
+  }
   return events.map(formatEvent).join("\n");
 }
 
 const TOOLS = [
   {
     name: "search_files",
-    description: "Search the workspace for files whose name or contents mention a phrase.",
+    description:
+      'Search files by simple space-separated KEYWORDS (not a structured query). Matches a file if its name or text contains any keyword. Example: search_files(query="pasta").',
     params: [{ name: "query", type: "string" }],
     mutating: false,
     handler: searchFiles,
@@ -123,7 +132,8 @@ const TOOLS = [
   },
   {
     name: "search_notes",
-    description: "Search saved notes for a phrase and return the ones that match.",
+    description:
+      'Search saved notes by simple space-separated KEYWORDS. Example: search_notes(query="review slides").',
     params: [{ name: "query", type: "string" }],
     mutating: false,
     handler: searchNotes,
@@ -137,8 +147,7 @@ const TOOLS = [
   },
   {
     name: "list_events",
-    description:
-      "List calendar events for a date (YYYY-MM-DD) or inclusive range (YYYY-MM-DD..YYYY-MM-DD).",
+    description: `List calendar events for a single date (YYYY-MM-DD) or an inclusive range (YYYY-MM-DD..YYYY-MM-DD). For several days use a range, e.g. list_events(date_or_range="${CALENDAR_START}..${CALENDAR_END}"). Today is ${TODAY}.`,
     params: [{ name: "date_or_range", type: "string" }],
     mutating: false,
     handler: listEvents,
