@@ -21,7 +21,7 @@ from deputy.approvals import (
 )
 from deputy.events import ActionDenied
 from deputy.model import ChatResponse, Message
-from deputy.tools import Tool, ToolRegistry, object_schema
+from deputy.tools import ApprovalRisk, Tool, ToolRegistry, object_schema
 
 
 def _reader(args: Mapping[str, Any]) -> str:
@@ -107,6 +107,51 @@ def test_mutating_tools_require_approval() -> None:
     assert prompter.seen[0].call.tool == "add_note"
 
 
+def test_external_tools_require_approval_without_being_marked_mutating() -> None:
+    registry = ToolRegistry(
+        [
+            Tool(
+                "web_search",
+                "search the public web",
+                object_schema(q={"type": "string"}),
+                _reader,
+                approval_risk=ApprovalRisk.EXTERNAL,
+            )
+        ]
+    )
+    prompter = _Prompter(approved=True)
+
+    decision = policy_approver(registry, prompter)(ToolCall("web_search", {"q": "cats"}))
+
+    assert decision.approved is True
+    assert len(prompter.seen) == 1
+    request = prompter.seen[0]
+    assert request.mutating is False
+    assert request.risk is ApprovalRisk.EXTERNAL
+    assert "external service" in request.reason
+
+
+def test_unknown_tool_risk_fails_closed_to_a_prompt() -> None:
+    registry = ToolRegistry(
+        [
+            Tool(
+                "ambiguous",
+                "tool with incomplete metadata",
+                object_schema(),
+                _reader,
+                approval_risk=ApprovalRisk.UNKNOWN,
+            )
+        ]
+    )
+    prompter = _Prompter(approved=False)
+
+    decision = policy_approver(registry, prompter)(ToolCall("ambiguous", {}))
+
+    assert decision.approved is False
+    assert prompter.seen[0].risk is ApprovalRisk.UNKNOWN
+    assert "safety annotations" in prompter.seen[0].reason
+
+
 def test_denied_write_is_not_executed_and_feeds_back_into_the_loop() -> None:
     recorder: list[str] = []
     model = _ScriptedModel([_tool("add_note", text="secret"), _final("done")])
@@ -127,8 +172,38 @@ def test_trust_override_can_wave_through_a_write() -> None:
     decision = approve(ToolCall("add_note", {"text": "hi"}))
 
     assert decision.approved is True
-    assert "trusted by policy" in decision.reason
+    assert "explicit per-tool policy" in decision.reason
     assert prompter.seen == []  # override short-circuits the prompt
+
+
+def test_allow_override_can_wave_through_external_access() -> None:
+    tool = Tool(
+        "web_search",
+        "search the public web",
+        object_schema(q={"type": "string"}),
+        _reader,
+        approval_risk=ApprovalRisk.EXTERNAL,
+    )
+    prompter = _Prompter(approved=False)
+
+    decision = policy_approver(
+        ToolRegistry([tool]), prompter, trust={"web_search": TrustLevel.ALLOW}
+    )(ToolCall("web_search", {"q": "x"}))
+
+    assert decision.approved is True
+    assert "explicit per-tool policy" in decision.reason
+    assert prompter.seen == []
+
+
+def test_prompt_override_can_gate_a_local_read() -> None:
+    prompter = _Prompter(approved=True)
+    approve = policy_approver(_registry(), prompter, trust={"search": TrustLevel.PROMPT})
+
+    decision = approve(ToolCall("search", {"q": "x"}))
+
+    assert decision.approved is True
+    assert prompter.seen[0].risk is ApprovalRisk.LOCAL_READ
+    assert "Per-tool policy" in prompter.seen[0].reason
 
 
 def test_trust_override_can_block_a_read() -> None:
@@ -145,14 +220,22 @@ def test_unknown_tool_is_denied() -> None:
 
 
 def test_resolve_trust_defaults_and_overrides() -> None:
-    assert resolve_trust(tool_mutating=False, override=None) is TrustLevel.ALLOW
-    assert resolve_trust(tool_mutating=True, override=None) is TrustLevel.PROMPT
-    assert resolve_trust(tool_mutating=True, override=TrustLevel.ALLOW) is TrustLevel.ALLOW
+    assert resolve_trust(ApprovalRisk.LOCAL_READ, override=None) is TrustLevel.ALLOW
+    assert resolve_trust(ApprovalRisk.MUTATION, override=None) is TrustLevel.PROMPT
+    assert resolve_trust(ApprovalRisk.EXTERNAL, override=None) is TrustLevel.PROMPT
+    assert resolve_trust(ApprovalRisk.UNKNOWN, override=None) is TrustLevel.PROMPT
+    assert resolve_trust(ApprovalRisk.MUTATION, override=TrustLevel.ALLOW) is TrustLevel.ALLOW
 
 
 def test_cli_prompter_accepts_and_declines() -> None:
     out = io.StringIO()
-    request = ApprovalRequest(ToolCall("add_note", {"text": "hi"}), True, "save a note")
+    request = ApprovalRequest(
+        ToolCall("add_note", {"text": "hi"}),
+        True,
+        "save a note",
+        risk=ApprovalRisk.MUTATION,
+        reason="This tool can modify local state.",
+    )
 
     yes = cli_prompter(read=lambda _: "y", out=out)(request)
     no = cli_prompter(read=lambda _: "", out=out)(request)
@@ -160,6 +243,23 @@ def test_cli_prompter_accepts_and_declines() -> None:
     assert yes.approved is True
     assert no.approved is False
     assert "add_note" in out.getvalue()
+    assert "[approval] write" in out.getvalue()
+
+
+def test_cli_prompter_labels_external_access_and_explains_the_risk() -> None:
+    out = io.StringIO()
+    request = ApprovalRequest(
+        ToolCall("web_search", {"query": "cats"}),
+        False,
+        "search the public web",
+        risk=ApprovalRisk.EXTERNAL,
+        reason="This tool can send data to an external service.",
+    )
+
+    cli_prompter(read=lambda _: "", out=out)(request)
+
+    assert "[approval] external access" in out.getvalue()
+    assert "external service" in out.getvalue()
 
 
 def test_recording_approver_reports_every_decision() -> None:

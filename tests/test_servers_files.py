@@ -55,6 +55,25 @@ def test_search_matches_a_filename(workspace: Path) -> None:
     assert "notes.md" in search_workspace(workspace, "notes")
 
 
+def test_search_skips_a_symlinked_file_outside_the_root(workspace: Path) -> None:
+    (workspace / "escape.txt").symlink_to(workspace.parent / "secret.txt")
+
+    result = search_workspace(workspace, "classified")
+
+    assert result == "No files matched 'classified'."
+
+
+def test_search_skips_a_symlinked_directory_outside_the_root(workspace: Path) -> None:
+    outside = workspace.parent / "outside"
+    outside.mkdir()
+    (outside / "credentials.txt").write_text("outside-only-token", encoding="utf-8")
+    (workspace / "linked").symlink_to(outside, target_is_directory=True)
+
+    result = search_workspace(workspace, "outside-only-token")
+
+    assert result == "No files matched 'outside-only-token'."
+
+
 def test_search_reports_no_matches(workspace: Path) -> None:
     assert "No files matched" in search_workspace(workspace, "unfindable-token")
 

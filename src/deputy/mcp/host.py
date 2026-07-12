@@ -28,6 +28,8 @@ from mcp.server.fastmcp import FastMCP
 from mcp.shared.memory import create_connected_server_and_client_session
 from mcp.types import CallToolResult, TextContent, ToolAnnotations
 
+from deputy.tools import ApprovalRisk
+
 Connector = Callable[[], AbstractAsyncContextManager[ClientSession]]
 
 _EMPTY_SCHEMA: dict[str, Any] = {"type": "object", "properties": {}, "additionalProperties": False}
@@ -53,6 +55,7 @@ class DiscoveredTool:
     description: str
     input_schema: Mapping[str, Any]
     mutating: bool
+    approval_risk: ApprovalRisk = ApprovalRisk.UNKNOWN
 
 
 def stdio_connector(spec: ServerSpec) -> Connector:
@@ -172,6 +175,7 @@ class McpHost:
                     description=tool.description or "",
                     input_schema=tool.inputSchema or _EMPTY_SCHEMA,
                     mutating=_is_mutating(tool.annotations),
+                    approval_risk=_approval_risk(tool.annotations),
                 )
             )
 
@@ -182,14 +186,22 @@ class McpHost:
 
 
 def _is_mutating(annotations: ToolAnnotations | None) -> bool:
-    # A tool counts as mutating only when it declares a write; absent hints mean
-    # read-only, so the Phase-4 gate stays reserved for genuine side effects
-    # rather than desensitizing the user to prompts on every lookup.
     if annotations is None:
         return False
-    if annotations.destructiveHint:
-        return True
-    return annotations.readOnlyHint is False
+    return annotations.destructiveHint is True or annotations.readOnlyHint is False
+
+
+def _approval_risk(annotations: ToolAnnotations | None) -> ApprovalRisk:
+    """Classify MCP hints conservatively; only explicit local reads run freely."""
+    if annotations is None:
+        return ApprovalRisk.UNKNOWN
+    if annotations.openWorldHint is True:
+        return ApprovalRisk.EXTERNAL
+    if annotations.destructiveHint is True or annotations.readOnlyHint is False:
+        return ApprovalRisk.MUTATION
+    if annotations.readOnlyHint is True and annotations.openWorldHint is False:
+        return ApprovalRisk.LOCAL_READ
+    return ApprovalRisk.UNKNOWN
 
 
 def _render(result: CallToolResult) -> str:

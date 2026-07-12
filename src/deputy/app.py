@@ -105,7 +105,7 @@ def build_agent(
     critic: Critic | None = None,
     observer: EventSink | None = None,
 ) -> Agent:
-    """Wire model + approvals + audit into one agent: local-first, writes gated."""
+    """Wire model + approvals + audit: local-first, risky tools gated."""
     model = build_router(config, local, cloud, on_route=recorder)
     approve = recording_approver(
         policy_approver(registry, prompter, trust=config.trust_overrides),

@@ -1,4 +1,4 @@
-// Preset goals and their canned "thoughts". In fallback mode a `scriptedModel`
+// Preset goals and their canned "thoughts". In scripted mode a `scriptedModel`
 // replays these action-by-action through the *real* agent loop, so tool calls,
 // observations, the approval gate, and the audit are all genuine — only the
 // model's decisions are pre-recorded instead of generated on-device.

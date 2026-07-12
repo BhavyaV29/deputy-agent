@@ -6,7 +6,9 @@ from collections.abc import Mapping
 
 import httpx
 
-from deputy.servers.web import web_search
+from deputy.mcp import McpHost, memory_connector
+from deputy.servers.web import mcp, web_search
+from deputy.tools import ApprovalRisk
 
 
 def _client(payload: Mapping[str, object]) -> httpx.Client:
@@ -44,3 +46,11 @@ def test_an_empty_query_short_circuits_without_a_request() -> None:
 
     with httpx.Client(transport=httpx.MockTransport(explode)) as client:
         assert "non-empty" in web_search("   ", client)
+
+
+def test_mcp_metadata_classifies_web_search_as_external_not_mutating() -> None:
+    with McpHost({"web": memory_connector(mcp)}) as host:
+        tool = next(tool for tool in host.list_tools() if tool.name == "web_search")
+
+    assert tool.mutating is False
+    assert tool.approval_risk is ApprovalRisk.EXTERNAL

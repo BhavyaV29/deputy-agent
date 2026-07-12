@@ -160,4 +160,6 @@ def _approval_message(approval_id: str, request: ApprovalRequest) -> StreamMessa
         "args": dict(request.call.args),
         "description": request.description,
         "mutating": request.mutating,
+        "risk": request.risk,
+        "reason": request.reason,
     }

@@ -9,9 +9,19 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterable, Iterator, Mapping
 from dataclasses import dataclass
+from enum import StrEnum
 from typing import Any
 
 ToolHandler = Callable[[Mapping[str, Any]], str]
+
+
+class ApprovalRisk(StrEnum):
+    """Why a tool is safe to run automatically or must pause for approval."""
+
+    LOCAL_READ = "local-read"
+    MUTATION = "mutation"
+    EXTERNAL = "external"
+    UNKNOWN = "unknown"
 
 
 @dataclass(frozen=True)
@@ -20,7 +30,14 @@ class Tool:
     description: str
     parameters: Mapping[str, Any]  # JSON Schema for the tool's args object
     handler: ToolHandler
-    mutating: bool = False  # writes/side effects; Phase 4 gates these selectively
+    mutating: bool = False  # writes/side effects; retained independently for trust metrics
+    approval_risk: ApprovalRisk = ApprovalRisk.LOCAL_READ
+
+    def __post_init__(self) -> None:
+        # Native tools historically declared only ``mutating``. Preserve that
+        # API while giving every tool an explicit approval classification.
+        if self.mutating and self.approval_risk is ApprovalRisk.LOCAL_READ:
+            object.__setattr__(self, "approval_risk", ApprovalRisk.MUTATION)
 
 
 class ToolRegistry:

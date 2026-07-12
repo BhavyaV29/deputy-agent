@@ -106,9 +106,9 @@ export async function createWebLLMModel({ modelId = DEFAULT_MODEL_ID, onProgress
     kind: "webllm",
     engine,
     // Plain streamed generation, not grammar-constrained JSON mode: the
-    // `response_format: json_object` grammar path stalls indefinitely on this
-    // 0.5B model, so we prompt for JSON and parse tolerantly instead. Streaming
-    // lets an external abort (a deadline) interrupt a stuck decode mid-flight.
+    // `response_format: json_object` grammar path has stalled on these small
+    // browser models, so we prompt for JSON and parse tolerantly instead.
+    // Streaming lets an external abort interrupt a stuck decode mid-flight.
     async act(messages, { signal } = {}) {
       if (signal?.aborted) throw abortReason(signal);
       console.debug("[deputy] inference start", { turns: messages.length });

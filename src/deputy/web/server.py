@@ -2,7 +2,7 @@
 
     POST /chat                     start a run, returns ``{"run_id": ...}``
     GET  /events/{run_id}          Server-Sent Events for that run
-    POST /approvals/{run_id}/{id}  approve or deny a paused mutating tool call
+    POST /approvals/{run_id}/{id}  approve or deny a paused tool call
     GET  /api/audit                recent runs and records from the audit log
     GET  /                         the single-page UI
 

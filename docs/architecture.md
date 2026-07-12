@@ -11,8 +11,8 @@ Four constraints shape almost every decision below.
 1. **On-device by default.** The model, your files, the index, and the audit log stay on your machine.
    Anything that could leave the device is off unless explicitly enabled *and* wired in.
 2. **The loop is enforced, the model is not trusted.** Reliability and safety come from the code around
-   the model — a schema it must decode into, a gate its writes must pass, a log it can't skip — not from
-   asking the model to behave. The [eval](eval_results.md) is what keeps this honest.
+   the model — a schema it must decode into, a gate risky tools must pass, a log it can't skip — not
+   from asking the model to behave. The [eval](eval_results.md) is what keeps this honest.
 3. **Seams are protocols; implementations are swappable.** The core depends on small interfaces
    (`ChatModel`, `Embedder`, `EventSink`, `ApprovalCallback`, `Prompter`, `Connector`), so every layer
    is testable against a fake and the whole suite runs offline.
@@ -62,7 +62,7 @@ flowchart TD
     LOOP --> AUD["Audit log (audit.py)"]
     ROUTER --> AUD
     GATE --> AUD
-    GATE -.->|"writes only"| IF
+    GATE -.->|"mutation · external · unknown"| IF
 ```
 
 Assembly happens in one place. `deputy/app.py` turns a `DeputyConfig` into a live `ToolRegistry`
@@ -156,9 +156,11 @@ compute tokens/sec. The client is a context manager over a single `httpx.Client`
 ## 4. Tools and the registry
 
 **What it is.** `deputy/tools.py` defines `Tool` (name, description, JSON-Schema `parameters`, a
-`handler`, and a `mutating` flag) and `ToolRegistry`. The registry is the **single source of truth**:
-both `action_schema()` and the system prompt are derived from it, so the model can only ever be offered
-tools that actually exist, and adding a tool automatically updates both the grammar and the prompt.
+`handler`, a `mutating` flag, and an `approval_risk`) and `ToolRegistry`. Mutation remains a separate
+semantic used by the trust metric; approval risk distinguishes confined local reads, mutations,
+external access, and unknown safety metadata. The registry is the **single source of truth**: both
+`action_schema()` and the system prompt are derived from it, so the model is only offered tools that
+actually exist.
 
 A tool sourced over MCP and a native in-process tool (like `search_docs`) are the same `Tool` type once
 registered — the loop cannot tell them apart, which is what lets §5 and §6 coexist behind one interface.
@@ -212,7 +214,7 @@ sequenceDiagram
 
 ---
 
-## 6. Built-in servers and the mutating flag
+## 6. Built-in servers and approval risk
 
 Each server in `deputy/servers/` is a self-contained stdio MCP server; the tool logic lives in plain
 functions (unit-tested directly) behind a thin MCP shell that reads its location from the environment.
@@ -222,12 +224,13 @@ functions (unit-tested directly) behind a thin MCP shell that reads its location
 | `files` | `search_files`, `read_file` | no | Every path is resolved and checked to fall under the workspace root; `..`, absolute paths, and out-of-tree symlinks raise `PathEscapeError`. |
 | `notes` | `add_note`, `search_notes` | `add_note` **yes** | Append-only JSONL; `add_note` declares `readOnlyHint=False` so the host tags it mutating. |
 | `calendar` | `list_events` | no | Read-only over a local JSON store; a date or an inclusive `A..B` range. |
-| `web` | `web_search` | no | **Opt-in** — only registered when `DEPUTY_WEB_SEARCH_ENABLED` is set. The only tool that reaches the network. |
+| `web` | `web_search` | no | **Opt-in** and classified as external access, so it prompts by default. The only tool that reaches the network. |
 
-**Mutation is derived, not guessed.** `McpHost._is_mutating` reads the standard MCP annotations: a tool
-is mutating only if it declares `destructiveHint` or sets `readOnlyHint=False`. Absent hints mean
-read-only, so the approval gate (§7) stays reserved for genuine side effects rather than desensitizing
-you with a prompt on every lookup.
+**Approval fails closed without falsifying mutation semantics.** `McpHost` still derives the
+`mutating` flag only from `destructiveHint=True` or `readOnlyHint=False`. Separately, it classifies
+approval risk: only `readOnlyHint=True` plus `openWorldHint=False` is a safe local read;
+`openWorldHint=True` is external, declared writes are mutations, and missing or ambiguous annotations
+are unknown. Every class except the explicit local read prompts by default.
 
 ---
 
@@ -282,9 +285,10 @@ can let act."
 ### Approvals (`approvals.py`)
 
 The important idea is that **deciding whether approval is needed is split from obtaining it.**
-`policy_approver` decides: reads are auto-approved, writes require sign-off, and explicit per-tool
-`TrustLevel` overrides (`allow` / `prompt` / `deny`) win. When sign-off is needed it hands an
-`ApprovalRequest` to a `Prompter` — and the prompter is just a seam:
+`policy_approver` auto-approves only explicitly classified local reads. Mutations, external access, and
+unknown MCP metadata require sign-off by default, while explicit per-tool `TrustLevel` overrides
+(`allow` / `prompt` / `deny`) still win. When sign-off is needed it hands an `ApprovalRequest` — with a
+risk-specific label and reason — to a `Prompter`:
 
 - `cli_prompter` — a terminal `y/N`.
 - `auto_prompter` — a canned answer for scripting/tests (`--yes`).
@@ -341,10 +345,10 @@ sequenceDiagram
         Loop->>Audit: ActionPlanned
         alt tool call
             Loop->>Gate: approve(call)
-            alt write (mutating)
+            alt approval required (mutation / external / unknown)
                 Gate->>UI: prompt (y/N or button)
                 UI-->>Gate: decision
-            else read-only
+            else explicitly local read-only
                 Gate-->>Loop: auto-approved
             end
             Gate->>Audit: approval decision
@@ -419,7 +423,8 @@ the earlier call-level experiment that motivated the bet.
 
 ## Cross-cutting: testing strategy
 
-Every external dependency sits behind a protocol, so the 199-test suite runs offline and fast:
+Every external dependency sits behind a protocol, so 207 tests run offline and fast; one additional
+Ollama integration test is opt-in:
 
 - `ChatModel` / `Embedder` → scripted fakes (no Ollama).
 - MCP → `memory_connector` runs real `FastMCP` servers in-process (no subprocesses).

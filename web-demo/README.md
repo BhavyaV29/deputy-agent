@@ -1,22 +1,29 @@
 # Deputy — in-browser demo
 
-A tiny, **fully client-side** demo of the [Deputy](../README.md) concept: a
-private, on-device agent loop that plans, calls tools, **asks before it acts**,
-and keeps an audit log — running entirely in your browser. The model runs
-locally on your GPU via [WebLLM](https://github.com/mlc-ai/web-llm) and WebGPU.
-The sample data is a small fixed corpus held only in the page. **Nothing leaves
-your machine** — there is no backend and no telemetry; the only network request
-is the one-time model download from a CDN.
+A tiny, static browser demo of the [Deputy](../README.md) concept: an agent loop
+that plans, calls tools, **asks before it acts**, and keeps an audit log. The
+default experience is a **scripted walkthrough** with pre-recorded model
+decisions, so it starts instantly and works without a GPU or model download.
+The browser-side tools, observations, approval gate, and session audit still run
+live over a fixed in-memory sample corpus.
+
+**Run it for real (experimental)** is an optional second mode. It downloads a
+small model and runs inference locally through
+[WebLLM](https://github.com/mlc-ai/web-llm) and WebGPU. There is no application
+backend or telemetry; the optional model assets are fetched from a CDN, while
+prompts and sample data stay in the browser.
 
 This is a self-contained illustration of Deputy's ideas, not the real Python
-app. It lives entirely in `web-demo/` and shares no code with `src/`.
+app. It lives entirely in `web-demo/` and shares no code with `src/`. The
+**Python/Ollama app** is Deputy's real constrained-decoding implementation.
 
 ## What it shows
 
-- **A bounded ReAct loop** streamed live: plan &rarr; tool call (with args)
-  &rarr; observation &rarr; answer, capped at a few steps.
-- **Constrained, on-device tool-calling** over a sandboxed corpus that mirrors
-  Deputy's real MCP tools:
+- **A scripted walkthrough by default:** plan &rarr; tool call (with args)
+  &rarr; observation &rarr; answer, capped at a few steps. The model choices are
+  pre-recorded; the surrounding JavaScript loop and tool execution are live.
+- **Browser-side tool-calling** over a sandboxed corpus that mirrors Deputy's
+  real MCP tools:
   - `search_files(query)` / `read_file(path)` — a confined virtual workspace
   - `search_notes(query)` / `add_note(text)` — an append-only note store
   - `list_events(date_or_range)` — a local calendar
@@ -24,32 +31,34 @@ app. It lives entirely in `web-demo/` and shares no code with `src/`.
   triggers an in-page **Approve / Deny** prompt before it runs.
 - **A persistent-style audit list** of every plan, observation, and approval
   decision for the session (see the **Audit** tab).
+- **Optional experimental WebGPU inference.** WebLLM is prompted to return one
+  JSON action; the browser then parses it tolerantly (including repairs and
+  retries for common small-model errors). This is **not** the Python/Ollama
+  constrained-decoding path, where an action schema is enforced by the runtime.
 
-## Requirements (for real on-device inference)
+## Requirements (optional experimental inference)
 
 - A **WebGPU-capable browser**: Chrome/Edge 113+ or a recent Chromium; Safari 18+;
   Firefox with WebGPU enabled. Desktop is recommended.
-- A GPU with roughly **1 GB of free memory** for the default model.
+- Enough GPU memory for the selected model; the 1.5B default downloads roughly
+  1 GB of weights.
 - The first run downloads the model weights (see below) and caches them; later
   runs load from cache and work offline.
 
-No WebGPU? No problem — the page detects that up front and runs a **scripted
-fallback** instead (details below), so it is always usable.
+No WebGPU? The default scripted walkthrough still works. WebGPU is checked only
+when you choose **Run it for real** (or open with `?live=1`).
 
 ## Model + download size
 
-Default: **`Qwen2.5-0.5B-Instruct-q4f16_1-MLC`** — the smallest genuinely useful
-instruct model in WebLLM's prebuilt list.
+Default for the optional live mode:
+**`Qwen2.5-1.5B-Instruct-q4f16_1-MLC`**.
 
-- **~300 MB** of weights, downloaded **once** and cached by the browser.
-- **~0.95 GB** of GPU memory at runtime.
+- **1.5B (default):** roughly 1 GB download; usually completes the preset tasks.
+- **0.5B:** roughly 350 MB; fastest, but prone to wandering or looping.
+- **3B:** roughly 2 GB; the most reliable browser option and the largest download.
 
-To try the slightly stronger `Llama-3.2-1B-Instruct-q4f16_1-MLC` (~880 MB
-download), change `MODEL` in [`js/llm.js`](./js/llm.js) to `ALT_MODEL`.
-
-> A 0.5B model is small. It's good enough to demonstrate the loop, but it will
-> occasionally pick an odd tool or phrase an answer awkwardly. The preset tasks
-> are the most reliable way to see the intended flow.
+Choose among them in the page before loading. All live modes are experimental;
+the scripted walkthrough is the reliable way to see the intended flow.
 
 ## Run locally
 
@@ -64,34 +73,34 @@ python3 -m http.server 8000
 
 Any static server works (e.g. `npx serve`, `npx http-server`).
 
-### Force the fallback (no GPU needed)
+### Pin the scripted mode
 
-Append `?fallback=1` to the URL to force the scripted path deterministically —
-useful for testing, screenshots, or presenting without a GPU:
+Scripted is already the default. Append `?fallback=1` to pin it deterministically
+(even if another link also supplies `?live=1`) — useful for tests or screenshots:
 
 ```
 http://localhost:8000/?fallback=1
 ```
 
-## How WebGPU detection + fallback works
+## How mode selection works
 
-On load the page checks for WebGPU and picks a mode:
+The page deliberately starts without probing the GPU or downloading a model:
 
-1. **`?fallback=1` present** &rarr; fallback immediately.
-2. **`navigator.gpu` missing** &rarr; fallback, with a banner explaining why.
-3. **`navigator.gpu` present** &rarr; it also calls
-   `navigator.gpu.requestAdapter()`; if no adapter is returned it downgrades to
-   fallback. Otherwise it offers a **Load on-device model** button.
-4. **Model load fails** (network, out-of-memory, compile error) &rarr; it
-   catches the error and downgrades to fallback with a banner.
+1. **Normal visit** &rarr; the scripted walkthrough immediately.
+2. **`?fallback=1` present** &rarr; scripted mode is explicitly pinned.
+3. **Run it for real** or **`?live=1`** &rarr; check `navigator.gpu`, then call
+   `navigator.gpu.requestAdapter()`. Missing support returns to scripted mode
+   with an explanation.
+4. **Usable adapter** &rarr; show the model picker and **Load on-device model**.
+5. **Model load fails** (network, out-of-memory, compile error) &rarr; keep the
+   picker and a retry button visible; the user can retry or return to scripted.
 
-In **fallback mode**, the preset demos replay a **canned transcript** through
-the *same* agent loop: the tool calls, observations, approval gate, and audit
-are all real — only the model's step-by-step decisions are pre-recorded instead
-of generated on-device. A banner always makes it clear you're in fallback.
+In **scripted mode**, preset demos replay canned model decisions through the
+same browser loop: tool calls, observations, approval gate, and audit are live;
+only the model's step-by-step choices are pre-recorded.
 
 WebLLM is imported lazily (only when you click **Load on-device model**), so the
-fallback path never touches the network.
+scripted path never requests model assets.
 
 ## Deploy as a static site
 
@@ -130,7 +139,7 @@ web-demo/
 ├── .gitignore
 └── js/
     ├── app.js          # wiring: WebGPU detection, model loading, run routing, audit
-    ├── agent.js        # the bounded ReAct loop + action parser (ports agent.py)
+    ├── agent.js        # browser loop + tolerant action parser
     ├── tools.js        # client-side files/notes/calendar tools + registry
     ├── data.js         # the sandboxed sample corpus (in-memory only)
     ├── prompts.js      # system / observation / denial prompt text
@@ -142,16 +151,19 @@ web-demo/
 
 ## Manual test checklist
 
-Automated syntax checks (`node --check`) cover the modules, but the WebGPU path
-must be verified by hand in a browser:
+`npm test` covers the tolerant parser and `node --check js/*.js` checks the
+modules. The WebGPU path still needs a browser:
 
-- [ ] `?fallback=1`: the banner shows fallback mode; each preset streams
-      plan &rarr; observation &rarr; answer; **Prep for today's review**
+- [ ] Normal visit: the banner identifies the scripted walkthrough; each preset
+      streams plan &rarr; observation &rarr; answer; **Prep for today's review**
       surfaces an Approve/Deny prompt; **Deny** produces the "did not save"
       answer and **Approve** the "saved a reminder" answer; the **Audit** tab
       lists the actions.
-- [ ] No-WebGPU browser: loads straight into fallback with an explanatory banner.
-- [ ] WebGPU browser: **Load on-device model** shows the download progress bar,
-      then the composer + presets run real on-device inference (nothing leaves
-      the machine — check DevTools' Network tab: only the one-time model fetch).
+- [ ] `?fallback=1`: remains in scripted mode even if `live=1` is also present.
+- [ ] No-WebGPU browser: scripted mode works; **Run it for real** returns to it
+      with an explanatory banner.
+- [ ] WebGPU browser: **Run it for real** reveals the model picker, then
+      **Load on-device model** shows download progress and enables live
+      inference. DevTools should show model-asset requests, but no prompt or
+      sample-data upload.
 - [ ] Reload after a successful load: the model comes from cache (works offline).

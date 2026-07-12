@@ -1,10 +1,10 @@
 """Adapt discovered MCP tools into native :class:`~deputy.tools.Tool` objects.
 
 The mapping is deliberately total and mechanical: an MCP tool's name, description,
-and input schema become the Deputy tool's, its read-only hint becomes the
-``mutating`` flag, and its handler is a thin closure that dispatches the call back
-through the host. Once registered, the constrained action schema and system prompt
-pick it up with no further plumbing.
+input schema, mutation flag, and approval-risk classification become the Deputy
+tool's, while its handler is a thin closure that dispatches the call back through
+the host. Once registered, the constrained action schema and system prompt pick it
+up with no further plumbing.
 """
 
 from __future__ import annotations
@@ -38,6 +38,7 @@ def _adapt(source: ToolSource, discovered: DiscoveredTool) -> Tool:
         parameters=_args_schema(discovered.input_schema),
         handler=handler,
         mutating=discovered.mutating,
+        approval_risk=discovered.approval_risk,
     )
 
 

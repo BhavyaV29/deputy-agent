@@ -3,6 +3,7 @@
 # The private FastAPI app (deputy.web / deputy-app) is a LOCAL app: it needs a
 # local Ollama and access to your own files, so it must NEVER be hosted here.
 # This blueprint publishes web-demo/, which is pure client-side HTML/CSS/JS — all
+# visitors get the scripted walkthrough by default; optional experimental
 # inference runs in the visitor's browser via WebGPU/WebLLM.
 #
 # Deploy: Render dashboard → New → Blueprint → select this repo (reads render.yaml).

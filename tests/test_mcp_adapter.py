@@ -9,7 +9,7 @@ from typing import Any
 from deputy.agent import Agent
 from deputy.mcp import DiscoveredTool, register_mcp_tools
 from deputy.model import ChatResponse, Message
-from deputy.tools import ToolRegistry
+from deputy.tools import ApprovalRisk, ToolRegistry
 
 _TOOLS = [
     DiscoveredTool(
@@ -22,6 +22,7 @@ _TOOLS = [
             "required": ["query"],
         },
         mutating=False,
+        approval_risk=ApprovalRisk.LOCAL_READ,
     ),
     DiscoveredTool(
         server="notes",
@@ -33,6 +34,7 @@ _TOOLS = [
             "required": ["text"],
         },
         mutating=True,
+        approval_risk=ApprovalRisk.MUTATION,
     ),
 ]
 
@@ -77,7 +79,10 @@ def test_adapts_name_description_schema_and_mutating() -> None:
     assert search.description == "Search files."
     assert search.parameters["required"] == ["query"]
     assert search.mutating is False
-    assert registry.get("add_note").mutating is True
+    assert search.approval_risk is ApprovalRisk.LOCAL_READ
+    add_note = registry.get("add_note")
+    assert add_note.mutating is True
+    assert add_note.approval_risk is ApprovalRisk.MUTATION
 
 
 def test_handler_dispatches_back_through_the_source() -> None:

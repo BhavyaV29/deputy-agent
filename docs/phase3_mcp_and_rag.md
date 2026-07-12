@@ -13,7 +13,7 @@ into it is immediately usable.
 | --- | --- |
 | `deputy/config.py` | `DeputyConfig`: workspace root, notes/calendar paths, index path, embeddings model, web-search flag — from env with local defaults. All runtime state lives under `data/` (gitignored). |
 | `deputy/mcp/host.py` | `McpHost`: connects to stdio MCP servers and exposes **blocking** `list_tools()` / `call_tool()`. It owns a private event loop on a daemon thread; one caretaker coroutine opens and later closes every session (anyio needs enter/exit on one task) while calls are dispatched onto the loop and awaited. |
-| `deputy/mcp/adapter.py` | `register_mcp_tools()`: maps each discovered MCP tool (name, description, `inputSchema`, `readOnlyHint`) onto a native `Tool` whose handler dispatches back through the host, then registers it. |
+| `deputy/mcp/adapter.py` | `register_mcp_tools()`: maps each discovered MCP tool (name, description, `inputSchema`, mutation metadata, approval risk) onto a native `Tool` whose handler dispatches back through the host, then registers it. |
 | `deputy/servers/` | The built-in stdio servers: `files`, `notes`, `calendar`, `web` (opt-in). Tool logic is in plain functions (unit-tested directly); the MCP shell reads its configured location from the environment. |
 | `deputy/rag/` | `chunk` (structure-aware splitting), `store` (sqlite-vec), `search` (the `search_docs` tool), `index` (the `python -m deputy.rag.index` entrypoint). |
 | `deputy/app.py` | `assistant_registry()`: launches the servers as subprocesses, adapts their tools, and adds the native `search_docs` tool — yielding one registry the Phase-2 `Agent` runs against. |
@@ -27,18 +27,19 @@ servers reached over stdio.
 
 | Tool | Server | Mutating | Constraint |
 | --- | --- | --- | --- |
-| `search_files(query)` | files | no | Confined to the workspace root. |
+| `search_files(query)` | files | no | Every searched file must resolve under the workspace root; out-of-root symlinked files/directories are skipped. |
 | `read_file(path)` | files | no | Every path is resolved and checked to fall under the root; `..`, absolute paths, and symlinks that point outside are rejected (`PathEscapeError`). |
 | `search_notes(query)` | notes | no | Keyword match over the local note store. |
 | `add_note(text)` | notes | **yes** | Append-only JSONL under `data/`. Declared `readOnlyHint=False`, so the host tags it `mutating` for the Phase-4 gate. |
 | `list_events(date_or_range)` | calendar | no | Read-only over a local JSON store; a single date or an inclusive `A..B` range. |
-| `web_search(query)` | web | no | **Opt-in**: only registered when `DEPUTY_WEB_SEARCH_ENABLED` is set. The only tool that touches the network. |
+| `web_search(query)` | web | no | **Opt-in** and classified as external, so it prompts by default. The only tool that touches the network. |
 
-Side-effect metadata is carried by a single `Tool.mutating` flag (default
-`False`). For MCP tools it is derived from the standard `readOnlyHint` /
-`destructiveHint` annotations. Absent hints mean read-only: the gate stays
-reserved for genuine writes rather than desensitizing the user with prompts on
-every lookup. Phase 4 will read this flag; it is not gated yet.
+`Tool.mutating` still records side-effect semantics independently. Approval uses
+an additional risk classification derived from MCP annotations: only an explicit
+`readOnlyHint=True` plus `openWorldHint=False` is a local read that can run
+without asking. Declared writes, open-world tools, and missing or ambiguous
+annotations prompt by default; per-tool `allow` / `prompt` / `deny` overrides
+remain authoritative.
 
 ## RAG design
 

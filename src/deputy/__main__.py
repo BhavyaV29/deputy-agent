@@ -5,9 +5,10 @@
     uv run python -m deputy --real --yes "save a note: buy milk"    # gated write, scripted
 
 ``--real`` assembles the built-in MCP servers and the on-device retrieval tool from
-the environment; without it, the trivial demo tools are used. Writes are gated: an
-approval prompt appears before a mutating tool runs (``--yes`` auto-approves for
-scripting), and every step is written to the audit log under ``data/``.
+the environment; without it, the trivial demo tools are used. Risky tools are
+gated: mutations, external access, and unclassified MCP tools prompt before they
+run (``--yes`` answers those prompts for scripting), and every step is written to
+the audit log under ``data/``.
 """
 
 from __future__ import annotations
@@ -60,7 +61,9 @@ def _parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
     parser.add_argument("--host", default=DEFAULT_HOST, help="Ollama base URL")
     parser.add_argument("--max-steps", type=int, default=8, help="step ceiling")
     parser.add_argument("--critic", action="store_true", help="self-check before answering")
-    parser.add_argument("--yes", action="store_true", help="auto-approve writes (non-interactive)")
+    parser.add_argument(
+        "--yes", action="store_true", help="auto-approve gated tools (non-interactive)"
+    )
     return parser.parse_args(argv)
 
 

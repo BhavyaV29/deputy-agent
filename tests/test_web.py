@@ -164,7 +164,9 @@ def test_index_page_and_static_assets_are_served(tmp_path: Path) -> None:
         # its gif) stays a single click, and the mutating one is present.
         assert "Try a sample task" in page.text
         assert "Save a note:" in page.text
-        assert client.get("/static/app.js").status_code == 200
+        app_js = client.get("/static/app.js")
+        assert app_js.status_code == 200
+        assert "External access needs approval" in app_js.text
         assert client.get("/static/style.css").status_code == 200
 
 
@@ -213,6 +215,8 @@ def test_approval_gate_runs_the_write_when_approved(tmp_path: Path) -> None:
     request = next(m for m in messages if m["type"] == "approval_request")
     assert request["tool"] == "add_note"
     assert request["mutating"] is True
+    assert request["risk"] == "mutation"
+    assert "modify local state" in request["reason"]
     observed = next(m for m in messages if m["type"] == "tool_observed")
     assert observed["tool"] == "add_note"
     assert observed["ok"] is True

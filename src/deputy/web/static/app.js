@@ -59,8 +59,15 @@ function finalize() {
 
 function addApproval(msg) {
   const entry = el("div", "entry approval");
-  entry.appendChild(el("div", "label", "Approval needed"));
+  const labels = {
+    mutation: "Write needs approval",
+    external: "External access needs approval",
+    unknown: "Unclassified tool needs approval",
+    "local-read": "Policy approval needed",
+  };
+  entry.appendChild(el("div", "label", labels[msg.risk] || "Approval needed"));
   entry.appendChild(code(`${msg.tool}(${fmtArgs(msg.args)})`));
+  if (msg.reason) entry.appendChild(el("div", "desc", msg.reason));
   if (msg.description) entry.appendChild(el("div", "desc", msg.description));
 
   const actions = el("div", "actions");

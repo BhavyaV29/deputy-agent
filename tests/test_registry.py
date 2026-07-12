@@ -7,7 +7,7 @@ from typing import Any
 
 import pytest
 
-from deputy.tools import Tool, ToolRegistry, object_schema, signature
+from deputy.tools import ApprovalRisk, Tool, ToolRegistry, object_schema, signature
 
 
 def _noop(args: Mapping[str, Any]) -> str:
@@ -52,5 +52,9 @@ def test_signature_of_no_arg_tool() -> None:
 
 
 def test_tool_is_non_mutating_by_default() -> None:
-    assert Tool("read", "d", object_schema(), _noop).mutating is False
-    assert Tool("write", "d", object_schema(), _noop, mutating=True).mutating is True
+    read = Tool("read", "d", object_schema(), _noop)
+    write = Tool("write", "d", object_schema(), _noop, mutating=True)
+    assert read.mutating is False
+    assert read.approval_risk is ApprovalRisk.LOCAL_READ
+    assert write.mutating is True
+    assert write.approval_risk is ApprovalRisk.MUTATION

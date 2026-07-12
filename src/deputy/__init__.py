@@ -66,7 +66,7 @@ from deputy.routing import (
     escalate_when_larger_than,
     local_only,
 )
-from deputy.tools import Tool, ToolHandler, ToolRegistry, object_schema, signature
+from deputy.tools import ApprovalRisk, Tool, ToolHandler, ToolRegistry, object_schema, signature
 
 __version__ = "0.0.0"
 
@@ -83,6 +83,7 @@ __all__ = [
     "ApprovalCallback",
     "ApprovalDecision",
     "ApprovalRequest",
+    "ApprovalRisk",
     "AuditLog",
     "AuditRecord",
     "ChatModel",

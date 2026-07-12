@@ -2,17 +2,18 @@
 
 **A private, on-device AI agent that works your own files and runs tasks — and asks before it acts.**
 
-**▶ [Try the live browser demo — no install](https://deputy-web-demo.onrender.com)** — Deputy's full
-agent loop runs entirely client-side (WebGPU) over sandboxed sample data: plan → tool → observation →
-answer, with the mutating step paused for an in-page approval and every action logged. Nothing leaves
-the tab.
+**▶ [Try the live browser demo — no install](https://deputy-web-demo.onrender.com)** — it opens with a
+scripted walkthrough of plan → tool → observation → approval → answer over sandboxed sample data. An
+optional **experimental** mode downloads a WebLLM model and runs inference locally through WebGPU; no
+prompt or sample data is sent to a backend.
 
 **Repo:** [github.com/BhavyaV29/deputy-agent](https://github.com/BhavyaV29/deputy-agent) · **CI:** pytest + ruff + mypy on every push
 
 Deputy runs a small local model (via [Ollama](https://ollama.com)) in a bounded agent loop, calls
 tools through [MCP](https://modelcontextprotocol.io), retrieves from your own documents on-device, and
-records every action behind approval gates before anything is written. Nothing leaves your machine
-unless you explicitly opt in.
+records every action while approval gates protect writes, external access, and tools with incomplete
+safety metadata. Nothing leaves your machine unless you explicitly opt in; external tool calls also
+require approval by default.
 
 ```text
 $ uv run python -m deputy --real "What's on my calendar for 2026-07-08, and any related notes?"
@@ -33,13 +34,13 @@ Most "AI assistants" are a text box wired to someone else's server. Deputy is th
   machine. The only tool that touches the network is web search, and it is off unless you turn it on.
 - **Works your own stuff.** Point it at a folder and it can search and read your files, look up your
   calendar, remember notes, and answer questions grounded in your own documents (with citations).
-- **Asks before it acts.** Reads run freely; anything that *writes* or has a side effect pauses for a
-  yes/no you actually see — in the terminal or the browser — and every step is appended to a plain-text
-  audit log you can `tail` while it works.
-- **Reliable enough to trust the loop.** Every model step is emitted under **constrained decoding**
-  (a JSON schema passed to the runtime), so the agent can only ever produce a well-formed tool call or
-  a final answer. On the reliability suite this lifts end-to-end task success from **29% → 88%** for
-  `qwen2.5:3b` (see [Reliability](#reliability)).
+- **Asks before risky actions.** Confined, explicitly read-only local tools run freely; writes,
+  external/open-world calls, and tools with incomplete safety metadata pause for a yes/no you actually
+  see — in the terminal or the browser — and every step is appended to a plain-text audit log.
+- **Reliable enough to trust the Python loop.** Every Python/Ollama model step is emitted under
+  **constrained decoding** (a JSON schema passed to the runtime), so the agent can only ever produce a
+  well-formed tool call or a final answer. On the Python app's reliability suite this lifts end-to-end
+  task success from **29% → 88%** for `qwen2.5:3b` (see [Reliability](#reliability)).
 
 ---
 
@@ -55,12 +56,12 @@ Everything below is implemented and tested in this repo.
 | **Tools over MCP** | A synchronous host drives async stdio MCP servers; discovered tools are adapted into native `Tool`s, indistinguishable to the loop. | `deputy/mcp/` |
 | **Built-in servers** | `files` (confined search/read), `notes` (add/search), `calendar` (read-only lookups), `web` (opt-in search — the only networked tool). | `deputy/servers/` |
 | **On-device RAG** | Structure-aware chunking → Ollama embeddings → `sqlite-vec` store; `search_docs` prefers vector search, falls back to keyword, and cites source paths. | `deputy/rag/` |
-| **Approval gates** | Policy approver auto-approves reads, requires sign-off for writes, honours per-tool trust overrides; deciding *whether* to ask is split from *how* to ask (CLI prompt or browser button). | `deputy/approvals.py` |
+| **Approval gates** | Policy auto-approves only classified local reads; mutations, external access, and unknown MCP tools require sign-off by default, with per-tool overrides. | `deputy/approvals.py` |
 | **Audit log** | Append-only, `fsync`-ed JSONL under `data/`: planned actions, observations, approvals, denials, and exactly what any cloud escalation sent. Sensitive fields redacted. | `deputy/audit.py` |
 | **Local-first routing** | The router *is* a `ChatModel`: local by default, with strictly opt-in, auditable cloud escalation that can't fire unless a cloud model was explicitly wired in. | `deputy/routing.py` |
 | **Optional self-check** | A critic asks the model to grade its own draft (also under constrained decoding) before answering. | `deputy/critic.py` |
 | **Local web UI** | FastAPI on loopback: chat, a live SSE action stream, in-browser approvals, and an audit view. | `deputy/web/` |
-| **Reliability eval** | Runs the *real* agent over a task suite with constrained decoding on vs off, scoring success, schema validity, and a trust metric. | `deputy/eval/` |
+| **Reliability eval** | Runs the real Python/Ollama agent over a task suite with constrained decoding on vs off, scoring success, schema validity, and a trust metric. | `deputy/eval/` |
 
 ---
 
@@ -107,10 +108,10 @@ flowchart TD
 
     LOOP --> GATE
     subgraph TRUST[Trust surface]
-        GATE["Approval gate<br/>writes need sign-off"]
+        GATE["Approval gate<br/>risky tools need sign-off"]
         AUDIT["Audit log<br/>append-only JSONL"]
     end
-    GATE -.->|"prompt (writes only)"| IF
+    GATE -.->|"prompt (mutation · external · unknown)"| IF
     LOOP --> AUDIT
     ROUTER --> AUDIT
 ```
@@ -123,9 +124,9 @@ flowchart TD
 2. **Plan (constrained).** The loop calls the model with that schema in the runtime's `format` field.
    Decoding is constrained, so the response is guaranteed to parse into either a **tool call** or a
    **final answer**.
-3. **Gate.** If it's a tool call, the approval policy decides: reads are auto-approved; writes pause for
-   a human yes/no (terminal prompt or a browser button). A denial becomes an observation and the loop
-   re-plans.
+3. **Gate.** If it's a tool call, the approval policy decides: explicitly local read-only tools are
+   auto-approved; mutations, external access, and tools with incomplete MCP annotations pause for a
+   human yes/no. A denial becomes an observation and the loop re-plans.
 4. **Act & observe.** An approved call runs (over MCP or in-process); its result — or a caught fault —
    is threaded back as the next observation. Repeat until the goal is met or the step ceiling is hit.
 5. **Answer (optionally self-checked).** On a final answer, an optional critic grades the draft against
@@ -205,7 +206,7 @@ The web server binds `127.0.0.1` only — Deputy is local-first, so the UI is ne
 | `--model` | ✓ | ✓ | Ollama chat model tag (default `qwen2.5:3b`). |
 | `--max-steps` | ✓ | ✓ | Step ceiling for the loop (default `8`). |
 | `--critic` | ✓ | ✓ | Self-check the draft answer before returning it. |
-| `--yes` | ✓ | — | Auto-approve writes (non-interactive scripting). |
+| `--yes` | ✓ | — | Auto-approve gated tools (non-interactive scripting). |
 | `--port` | — | ✓ | Loopback port (default `8000`; `deputy-app` advances to the next free port if busy). |
 | `--window` | — | app | `deputy-app` only: open a native desktop window (needs the `app` extra). |
 | `--no-browser` | — | app | `deputy-app` only: start the server without auto-opening anything. |
@@ -238,17 +239,17 @@ approve? [y/N] y
 [2] finished (answered): Saved your note.
 ```
 
-Add `--yes` to auto-approve writes when scripting. Every one of these steps also lands in the audit log
-at `data/audit.jsonl`.
+Add `--yes` to auto-approve gated tools when scripting. Every one of these steps also lands in the
+audit log at `data/audit.jsonl`.
 
 ---
 
 ## Reliability
 
-Constrained decoding is the load-bearing reliability lever. The eval harness runs the **real** agent
-over a 17-task suite (tool selection, multi-step reasoning, RAG, approval-gating, graceful failure,
-refusal) with the action schema passed to the runtime (`grammar`) vs dropped (`freeform`), and grades
-the outcomes with deterministic programmatic checks — no LLM judge.
+Constrained decoding is the load-bearing reliability lever in the **Python/Ollama app**. Its eval
+harness runs the real Python agent over a 17-task suite (tool selection, multi-step reasoning, RAG,
+approval-gating, graceful failure, refusal) with the action schema passed to Ollama (`grammar`) vs
+dropped (`freeform`), and grades the outcomes with deterministic programmatic checks — no LLM judge.
 
 **`qwen2.5:3b`, constrained vs unconstrained decoding:**
 
@@ -282,8 +283,10 @@ Deputy's trust surface is a first-class part of the design, not a setting:
 - **Local by default.** The model, embeddings, index, notes, calendar, and audit log are all on-device
   under `data/` (gitignored). Cloud escalation is impossible unless a cloud model is *explicitly* wired
   in — a misconfigured policy alone can never push data off the machine.
-- **Approval gates on writes.** Read-only tools run freely; mutating tools (e.g. `add_note`) require a
-  yes/no. Trust is configurable per tool (`allow` / `prompt` / `deny`) via `DEPUTY_TRUST`.
+- **Approval gates fail closed.** Only explicitly read-only, confined local tools run freely. Mutations
+  (e.g. `add_note`), external/open-world tools (e.g. `web_search`), and tools with missing or ambiguous
+  MCP safety annotations require a yes/no by default. Per-tool `allow` / `prompt` / `deny` overrides
+  remain available through `DEPUTY_TRUST`.
 - **A real audit trail.** Every meaningful moment is one JSON line you can `tail` in real time.
   Known-sensitive fields are redacted; tool output is summarized to keep the log lean.
 - **Opt-in cloud, fully logged.** If you enable escalation (`DEPUTY_CLOUD_ENABLED=1` **and** a key),
@@ -302,15 +305,25 @@ export DEPUTY_TRUST="add_note=deny"         # example: never allow note writes
 
 ## Demo
 
-Two ways to see Deputy work: the **in-browser demo** below (no install), or the full local app on your own machine.
+Two ways to see Deputy work: the **in-browser walkthrough** below (no install), or the full Python app
+on your own machine.
 
 ### Try it in your browser — no install
 
-[`web-demo/`](web-demo/) is a self-contained, static demo that runs Deputy's whole agent loop **entirely client-side**: a small model (Qwen2.5-0.5B) runs in your browser via WebLLM/WebGPU over a sandboxed sample corpus, streaming plan → tool → observation → answer, pausing the mutating step for an in-page **Approve / Deny**, and logging every action — nothing leaves the tab. It mirrors the privacy story the real app makes on your own machine.
+[`web-demo/`](web-demo/) is a self-contained static illustration. The default experience is a
+**scripted walkthrough**: model decisions are pre-recorded, while the browser-side tools, observations,
+approval pause, and session audit run live over an in-memory sample corpus. Click **Run it for real
+(experimental)** to opt into a one-time model download and live WebLLM/WebGPU inference.
+
+The experimental WebLLM path prompts for one JSON action and uses a tolerant parser plus retries; it
+does **not** use the Python/Ollama app's runtime-enforced schema decoding. The Python/Ollama app is the
+real constrained-decoding implementation, and the [reliability results](#reliability) apply to that app
+only.
 
 - **Live demo:** **<https://deputy-web-demo.onrender.com>** — live now, no install required. Published from `web-demo/` via the repo's [`render.yaml`](render.yaml) as a [Render](https://render.com) Static Site with no build step; it's plain static files, so any static host (Netlify / Vercel / GitHub Pages) works too.
 - **Run locally:** `cd web-demo && python3 -m http.server 8000`, then open `http://localhost:8000`.
-- **No WebGPU?** It auto-detects and falls back to a scripted transcript so it always works; force that path with `?fallback=1`.
+- **Modes:** scripted is the default; `?fallback=1` pins that mode. `?live=1` or the in-page button
+  enters the optional experimental WebGPU path when the browser supports it.
 
 ### Run the full app locally
 
@@ -349,7 +362,7 @@ src/deputy/
   web/             FastAPI loopback UI (SSE stream, approvals, audit)
   eval/            reliability eval harness
   spike/           the Phase-1 constrained-decoding spike
-tests/             199 tests
+tests/             207 offline tests + 1 opt-in Ollama integration test
 docs/              architecture, eval results, build-in-public notes
 sample_workspace/  a small corpus to index and query out of the box
 ```
@@ -359,7 +372,7 @@ sample_workspace/  a small corpus to index and query out of the box
 ## Development
 
 ```bash
-uv run pytest -q        # 199 tests
+uv run pytest -q        # 207 pass offline; 1 Ollama integration skips if unavailable
 uv run ruff check .     # lint
 uv run mypy             # strict type-checking
 ```
@@ -375,7 +388,7 @@ Packaging Deputy as a standalone desktop command is documented in
 ## Status & license
 
 Working end-to-end across its core phases (agent core, MCP tools, on-device RAG, trust surface, web UI,
-and a reliability eval), with 199 passing tests and clean `ruff` + strict `mypy`. It is a personal
-project and a focused demonstration rather than a supported product.
+and a reliability eval), with 207 offline tests, one opt-in Ollama integration test, and clean `ruff` +
+strict `mypy`. It is a personal project and a focused demonstration rather than a supported product.
 
 Licensed under the [MIT License](LICENSE).

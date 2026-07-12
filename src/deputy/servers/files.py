@@ -63,16 +63,20 @@ def read_workspace(root: Path, path: str) -> str:
 
 
 def _text_files(root: Path) -> list[tuple[str, str]]:
+    root = root.resolve()
     files: list[tuple[str, str]] = []
     for path in sorted(root.rglob("*")):
-        if not path.is_file() or _is_hidden(path, root):
+        if _is_hidden(path, root):
             continue
         try:
-            if path.stat().st_size > _MAX_FILE_BYTES:
+            target = path.resolve()
+            if target != root and root not in target.parents:
                 continue
-            text = path.read_text(encoding="utf-8")
-        except (OSError, UnicodeDecodeError):
-            continue  # unreadable or binary — skip rather than fail the search
+            if not target.is_file() or target.stat().st_size > _MAX_FILE_BYTES:
+                continue
+            text = target.read_text(encoding="utf-8")
+        except (OSError, RuntimeError, UnicodeDecodeError):
+            continue  # unreadable, binary, or an invalid symlink — skip rather than fail
         files.append((str(path.relative_to(root)), text))
     return files
 

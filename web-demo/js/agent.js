@@ -353,7 +353,7 @@ export async function runAgent({
 
   const think = () => withDeadline(stepTimeoutMs, (signal) => model.act(messages, { signal }));
 
-  // One last generation constrained to "answer from what you have", with a
+  // One last generation prompted to "answer from what you have", with a
   // deterministic summary behind it, so a run always ends with something useful.
   async function finalize(reason, step) {
     emit({ type: "finalizing", step, reason });
